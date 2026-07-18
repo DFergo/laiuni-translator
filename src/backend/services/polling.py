@@ -30,6 +30,7 @@ logger = logging.getLogger("backend.polling")
 
 
 _branding_pushed: set[str] = set()  # Track which frontends have branding pushed
+_languages_pushed: set[str] = set()  # Track which frontends have the languages catalogue
 
 
 def invalidate_branding_cache(frontend_id: str = ""):
@@ -38,6 +39,19 @@ def invalidate_branding_cache(frontend_id: str = ""):
         _branding_pushed.discard(frontend_id)
     else:
         _branding_pushed.clear()
+
+
+async def _push_languages_if_needed(client: httpx.AsyncClient, url: str, fid: str):
+    """Push the 17-language + tier catalogue to the sidecar (once per session)."""
+    if fid in _languages_pushed:
+        return
+    try:
+        from src.services.job_channel import build_languages_payload
+        await client.post(f"{url}/internal/languages", json=build_languages_payload())
+        _languages_pushed.add(fid)
+        logger.info(f"Languages catalogue pushed to {fid}")
+    except Exception as e:
+        logger.debug(f"Languages push to {fid} failed: {e}")
 
 
 async def _push_branding_if_needed(client: httpx.AsyncClient, url: str, fid: str):
@@ -86,6 +100,12 @@ async def poll_frontends():
                 for auth_req in auth_requests:
                     await _handle_auth_request(client, url, auth_req, fid)
 
+                # Push the languages catalogue (once per session) + handle job
+                # submit/status/download requests (Sprint 5, ADR-009).
+                await _push_languages_if_needed(client, url, fid)
+                from src.services.job_channel import handle_job_requests
+                await handle_job_requests(client, url, data, fid)
+
             except Exception as e:
                 registry.set_status(fid, "offline")
                 logger.warning(f"Failed to poll {fid} ({url}): {e}")
@@ -110,13 +130,16 @@ async def _handle_auth_request(client: httpx.AsyncClient, frontend_url: str, aut
 
     try:
         if code_attempt:
-            # Verification attempt
+            # Verification attempt — mint a user bearer token on success (Sprint 5)
             valid = verify_auth_code(session_token, code_attempt)
             result = {
                 "session_token": session_token,
                 "status": "verified" if valid else "invalid_code",
                 "email": email,
             }
+            if valid:
+                from src.services.user_tokens import mint_user_token
+                result["token"] = mint_user_token(email, frontend_id)
         else:
             # Code request — check whitelist, generate code, send email
             if not is_email_authorized(email, frontend_id):

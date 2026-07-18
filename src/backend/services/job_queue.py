@@ -60,6 +60,7 @@ def init_db() -> None:
                 id           TEXT PRIMARY KEY,
                 owner_email  TEXT NOT NULL,
                 frontend_id  TEXT NOT NULL DEFAULT '',
+                client_ref   TEXT NOT NULL DEFAULT '',   -- sidecar-side handle (pull-inverse)
                 source_lang  TEXT NOT NULL,
                 target_langs TEXT NOT NULL,   -- JSON list
                 format       TEXT NOT NULL,
@@ -76,6 +77,20 @@ def init_db() -> None:
             )
             """
         )
+        # Additive migration for DBs created before client_ref (Sprint 5).
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(jobs)")}
+        if "client_ref" not in cols:
+            conn.execute("ALTER TABLE jobs ADD COLUMN client_ref TEXT NOT NULL DEFAULT ''")
+
+
+def detect_tier(filename: str) -> str | None:
+    """Map a filename to its supported tier (tier1|tier2|tier3), or None if
+    unsupported (SPEC §4.2 / §7 `supported_formats`)."""
+    ext = Path(filename).suffix.lower()
+    for tier, exts in config.supported_formats.items():
+        if ext in exts:
+            return tier
+    return None
 
 
 def _row_to_job(row: sqlite3.Row) -> dict[str, Any]:
@@ -124,6 +139,7 @@ def enqueue(
     path: str,
     *,
     frontend_id: str = "",
+    client_ref: str = "",
     glossary: str = "",
     mode: str = "scheduled",
     chars: int | None = None,
@@ -143,11 +159,11 @@ def enqueue(
 
     with _connect() as conn:
         conn.execute(
-            """INSERT INTO jobs (id, owner_email, frontend_id, source_lang, target_langs,
-                   format, path, glossary, mode, run_at, status, progress, estimate_s,
-                   error, created_at, expires_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (job_id, owner_email.lower().strip(), frontend_id, source_lang,
+            """INSERT INTO jobs (id, owner_email, frontend_id, client_ref, source_lang,
+                   target_langs, format, path, glossary, mode, run_at, status, progress,
+                   estimate_s, error, created_at, expires_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (job_id, owner_email.lower().strip(), frontend_id, client_ref, source_lang,
              json.dumps(target_langs), fmt, path, glossary, mode,
              run_at_dt.timestamp(), status, json.dumps(progress), estimate,
              "", now.timestamp(), None),
@@ -167,6 +183,29 @@ def get(job_id: str, owner_email: str | None = None) -> dict[str, Any] | None:
     if owner_email is not None and job["owner_email"] != owner_email.lower().strip():
         return None
     return job
+
+
+def get_by_ref(frontend_id: str, client_ref: str) -> dict[str, Any] | None:
+    """Fetch a job by its sidecar-side client_ref within a frontend."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM jobs WHERE frontend_id = ? AND client_ref = ?",
+            (frontend_id, client_ref),
+        ).fetchone()
+    return _row_to_job(row) if row else None
+
+
+def jobs_for_frontend(frontend_id: str, statuses: tuple[str, ...] | None = None) -> list[dict[str, Any]]:
+    """Jobs belonging to a frontend, optionally filtered by status (for the
+    pull-inverse status push)."""
+    q = "SELECT * FROM jobs WHERE frontend_id = ?"
+    params: list[Any] = [frontend_id]
+    if statuses:
+        q += f" AND status IN ({','.join('?' * len(statuses))})"
+        params.extend(statuses)
+    with _connect() as conn:
+        rows = conn.execute(q, params).fetchall()
+    return [_row_to_job(r) for r in rows]
 
 
 def list_due(now: float | None = None) -> list[dict[str, Any]]:
@@ -214,6 +253,11 @@ def mark_done(job_id: str, expires_at: float) -> None:
 
 def mark_failed(job_id: str, error: str) -> None:
     _set(job_id, status="failed", error=error[:500])
+
+
+def assign_path(job_id: str, path: str) -> None:
+    """Point a job at its stored source file (after the upload is moved in)."""
+    _set(job_id, path=path)
 
 
 def delete(job_id: str) -> None:

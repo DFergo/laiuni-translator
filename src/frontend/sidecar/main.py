@@ -4,14 +4,15 @@ import asyncio
 import json
 import logging
 import os
+import secrets
 import shutil
 import tempfile
 import time
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, UploadFile, File
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Header, Request
+from fastapi.responses import StreamingResponse, FileResponse, Response
 from pydantic import BaseModel
 
 logging.basicConfig(level=logging.INFO)
@@ -238,6 +239,12 @@ async def dequeue_messages():
         evidence_delete_requests = list(_evidence_delete_queue)
         _evidence_delete_queue.clear()
 
+    # Collect pending translation-job requests (Sprint 5, pull-inverse)
+    async with _jobs_lock:
+        job_submits = list(_job_submits); _job_submits.clear()
+        job_downloads = list(_job_downloads); _job_downloads.clear()
+        job_status_requests = list(_job_status_requests); _job_status_requests.clear()
+
     result: dict[str, Any] = {"messages": valid}
     if recovery_requests:
         result["recovery_requests"] = recovery_requests
@@ -248,6 +255,12 @@ async def dequeue_messages():
     if evidence_delete_requests:
         result["evidence_delete_requests"] = evidence_delete_requests
         logger.info(f"Evidence delete requests: {len(evidence_delete_requests)}")
+    if job_submits:
+        result["job_submits"] = job_submits
+    if job_downloads:
+        result["job_downloads"] = job_downloads
+    if job_status_requests:
+        result["job_status_requests"] = job_status_requests
 
     logger.info(f"Dequeued {len(valid)} messages")
     return result
@@ -392,6 +405,7 @@ class AuthResultRequest(BaseModel):
     session_token: str
     status: str  # "code_sent", "verified", "invalid_code", "not_authorized", "smtp_error", "smtp_not_configured"
     email: str = ""
+    token: str = ""  # Sprint 5: user bearer token, present when status == "verified"
 
 
 @app.post("/internal/auth/request-code")
@@ -438,7 +452,7 @@ async def get_auth_status(session_token: str):
         state = _auth_requests.get(session_token)
     if not state:
         return {"status": "none"}
-    return {"status": state["status"], "email": state.get("email", "")}
+    return {"status": state["status"], "email": state.get("email", ""), "token": state.get("token", "")}
 
 
 @app.post("/internal/auth/{session_token}/result")
@@ -449,6 +463,8 @@ async def push_auth_result(session_token: str, req: AuthResultRequest):
             _auth_requests[session_token]["status"] = req.status
             if req.email:
                 _auth_requests[session_token]["email"] = req.email
+            if req.token:
+                _auth_requests[session_token]["token"] = req.token
             logger.info(f"Auth result for {session_token}: {req.status}")
         else:
             logger.warning(f"Auth result for {session_token} but no pending request")
@@ -568,3 +584,171 @@ async def request_evidence_delete(session_token: str, filename: str):
         })
     logger.info(f"Evidence delete queued: {filename} for {session_token}")
     return {"status": "queued"}
+
+
+# ===========================================================================
+# LAIUNI Translator — user-facing API (Sprint 5, SPEC §4.1; pull-inverse)
+# The browser hits these; the backend fulfils them over /internal/queue.
+# ===========================================================================
+
+# ref -> latest status pushed by backend; ref -> result zip; drained request lists.
+_jobs: dict[str, dict[str, Any]] = {}
+_artifacts: dict[str, bytes] = {}
+_job_submits: list[dict[str, Any]] = []
+_job_downloads: list[dict[str, Any]] = []
+_job_status_requests: list[dict[str, Any]] = []
+_jobs_lock = asyncio.Lock()
+_languages: dict[str, Any] = {}
+
+_AUTH_TERMINAL = ("verified", "invalid_code", "not_authorized", "smtp_error", "smtp_not_configured")
+
+
+def _bearer(authorization: str) -> str:
+    return authorization[7:] if authorization[:7].lower() == "bearer " else authorization
+
+
+async def _wait_for(getter, timeout: float = 15.0, interval: float = 0.3):
+    """Poll a getter until it returns something truthy or the timeout elapses."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        v = getter()
+        if v:
+            return v
+        await asyncio.sleep(interval)
+    return getter()
+
+
+# --- Auth (magic-code; session_token = email — one active code per email) ---
+
+class RequestTokenRequest(BaseModel):
+    email: str
+    language: str = "en"
+
+
+class VerifyRequest(BaseModel):
+    email: str
+    code: str
+    language: str = "en"
+
+
+@app.post("/request-token")
+async def request_token(req: RequestTokenRequest):
+    """Ask for a magic code. Generic response — no user enumeration (SPEC §8)."""
+    st = req.email.lower().strip()
+    async with _auth_lock:
+        _auth_requests[st] = {"status": "pending", "email": st, "created_at": time.time()}
+        _auth_queue.append({"session_token": st, "email": st, "language": req.language})
+    logger.info(f"request-token for {st}")
+    return {"ok": True}
+
+
+@app.post("/verify")
+async def verify(req: VerifyRequest):
+    """Submit the code; on success return the bearer token (SPEC §3.1)."""
+    st = req.email.lower().strip()
+    async with _auth_lock:
+        _auth_requests.setdefault(st, {"email": st, "created_at": time.time()})
+        _auth_requests[st]["status"] = "verifying"
+        _auth_queue.append({"session_token": st, "code": req.code, "email": st, "language": req.language})
+
+    def _resolved():
+        s = _auth_requests.get(st, {})
+        return s if s.get("status") in _AUTH_TERMINAL else None
+
+    state = await _wait_for(_resolved)
+    if state and state.get("status") == "verified" and state.get("token"):
+        return {"token": state["token"]}
+    raise HTTPException(status_code=401, detail="invalid_code")
+
+
+# --- Jobs ---
+
+@app.post("/jobs")
+async def submit_job(
+    file: UploadFile = File(...),
+    source_lang: str = Form("en"),
+    target_langs: str = Form(...),   # JSON list or comma-separated codes
+    glossary: str = Form(""),
+    mode: str = Form("scheduled"),
+    authorization: str = Header(default=""),
+):
+    """Upload one file + params. The backend detects tier, estimates, enqueues."""
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No filename provided")
+    content = await file.read()
+    if len(content) > UPLOAD_MAX_SIZE:
+        raise HTTPException(status_code=400, detail=f"File too large. Max {UPLOAD_MAX_SIZE // (1024*1024)}MB")
+
+    ref = secrets.token_urlsafe(12)
+    session_dir = _upload_dir / ref
+    session_dir.mkdir(parents=True, exist_ok=True)
+    (session_dir / file.filename).write_bytes(content)
+
+    raw = target_langs.strip()
+    langs = json.loads(raw) if raw.startswith("[") else [x.strip() for x in raw.split(",") if x.strip()]
+
+    async with _jobs_lock:
+        _job_submits.append({
+            "ref": ref, "token": _bearer(authorization), "filename": file.filename,
+            "source_lang": source_lang, "target_langs": langs,
+            "glossary": glossary, "mode": mode,
+        })
+    logger.info(f"Job submit queued ref={ref} file={file.filename} langs={langs}")
+    state = await _wait_for(lambda: _jobs.get(ref))
+    return state or {"ref": ref, "status": "pending"}
+
+
+@app.get("/jobs/{ref}")
+async def job_status(ref: str, authorization: str = Header(default="")):
+    """Latest status for a job (owner-scoped by the backend)."""
+    async with _jobs_lock:
+        _job_status_requests.append({"ref": ref, "token": _bearer(authorization)})
+    return _jobs.get(ref, {"ref": ref, "status": "pending"})
+
+
+@app.get("/jobs/{ref}/download")
+async def job_download(ref: str, authorization: str = Header(default="")):
+    """Download the result zip — backend pushes it; served only while valid."""
+    async with _jobs_lock:
+        _job_downloads.append({"ref": ref, "token": _bearer(authorization)})
+    data = await _wait_for(lambda: _artifacts.get(ref), timeout=30.0)
+    if not data:
+        raise HTTPException(status_code=404, detail="Not available (not done, expired, or not owner)")
+    async with _jobs_lock:
+        _artifacts.pop(ref, None)  # one-shot
+    return Response(
+        content=data, media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="translations-{ref}.zip"'},
+    )
+
+
+@app.get("/languages")
+async def languages():
+    """The 17 target languages + format tiers (pushed by the backend)."""
+    return _languages or {"languages": [], "formats": []}
+
+
+# --- Internal: backend pushes results here (pull-inverse) ---
+
+@app.post("/internal/jobs/{ref}/status")
+async def push_job_status(ref: str, body: dict[str, Any]):
+    async with _jobs_lock:
+        _jobs[ref] = body
+    return {"status": "ok"}
+
+
+@app.post("/internal/jobs/{ref}/artifact")
+async def push_job_artifact(ref: str, request: Request):
+    data = await request.body()
+    async with _jobs_lock:
+        _artifacts[ref] = data
+    logger.info(f"Artifact received for {ref} ({len(data)} bytes)")
+    return {"status": "ok"}
+
+
+@app.post("/internal/languages")
+async def push_languages(body: dict[str, Any]):
+    global _languages
+    _languages = body
+    logger.info(f"Languages catalogue received ({len(body.get('languages', []))} langs)")
+    return {"status": "ok"}
