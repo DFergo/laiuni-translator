@@ -369,8 +369,8 @@ async def test_connection() -> dict[str, str]:
             first = notify_emails[0]
             sent = await send_email(
                 first,
-                "HRDD Helper — SMTP Test",
-                "This is a test email from HRDD Helper. SMTP is working correctly."
+                "UNI Translator — SMTP Test",
+                "This is a test email from UNI Translator. SMTP is working correctly."
             )
             if sent:
                 return {"status": "ok", "message": f"Connected and test email sent to {first}"}
@@ -443,9 +443,9 @@ def get_pending_email(session_token: str) -> str | None:
 async def send_auth_code(email: str, code: str, language: str = "en") -> bool:
     """Send an auth code email. Returns True on success."""
     subjects = {
-        "en": "HRDD Helper — Your verification code",
-        "es": "HRDD Helper — Tu código de verificación",
-        "fr": "HRDD Helper — Votre code de vérification",
+        "en": "UNI Translator — Your verification code",
+        "es": "UNI Translator — Tu código de verificación",
+        "fr": "UNI Translator — Votre code de vérification",
     }
     bodies = {
         "en": f"Your verification code is: {code}\n\nThis code expires in 10 minutes.\nIf you did not request this code, please ignore this email.",
@@ -525,7 +525,7 @@ async def notify_admin_report(session_token: str, report_content: str, frontend_
     recipients = _resolve_notification_recipients(frontend_id)
     if not recipients:
         return
-    subject = f"HRDD Helper — Report generated for session {session_token}"
+    subject = f"UNI Translator — Report generated for session {session_token}"
     body = f"A report has been generated for session {session_token}.\n\n---\n\n{report_content}"
     for addr in recipients:
         await send_email(addr, subject, body)
@@ -537,9 +537,9 @@ async def send_user_summary(email: str, session_token: str, summary: str, langua
     if not cfg.get("send_summary_to_user"):
         return
     subjects = {
-        "en": f"HRDD Helper — Session summary ({session_token})",
-        "es": f"HRDD Helper — Resumen de sesión ({session_token})",
-        "fr": f"HRDD Helper — Résumé de session ({session_token})",
+        "en": f"UNI Translator — Session summary ({session_token})",
+        "es": f"UNI Translator — Resumen de sesión ({session_token})",
+        "fr": f"UNI Translator — Résumé de session ({session_token})",
     }
     subject = subjects.get(language, subjects["en"])
     await send_email(email, subject, summary)
@@ -551,9 +551,9 @@ async def send_user_report(email: str, session_token: str, report: str, language
     if not cfg.get("send_report_to_user"):
         return
     subjects = {
-        "en": f"HRDD Helper — Session report ({session_token})",
-        "es": f"HRDD Helper — Informe de sesión ({session_token})",
-        "fr": f"HRDD Helper — Rapport de session ({session_token})",
+        "en": f"UNI Translator — Session report ({session_token})",
+        "es": f"UNI Translator — Informe de sesión ({session_token})",
+        "fr": f"UNI Translator — Rapport de session ({session_token})",
     }
     subject = subjects.get(language, subjects["en"])
     await send_email(email, subject, report)
@@ -595,7 +595,7 @@ async def notify_slot_failure(
         return
 
     if fallback_provider:
-        subject = f"[HRDD Helper] LLM slot \"{slot_name}\" degraded — falling back to {fallback_model}"
+        subject = f"[UNI Translator] LLM slot \"{slot_name}\" degraded — falling back to {fallback_model}"
         body = (
             f"The LLM slot \"{slot_name}\" has failed and the system is using a fallback.\n\n"
             f"Failed: {failed_provider} / {failed_model}\n"
@@ -606,7 +606,7 @@ async def notify_slot_failure(
             f"This email is rate-limited to 1 per hour per slot."
         )
     else:
-        subject = f"[HRDD Helper] LLM slot \"{slot_name}\" OFFLINE — no fallback available"
+        subject = f"[UNI Translator] LLM slot \"{slot_name}\" OFFLINE — no fallback available"
         body = (
             f"The LLM slot \"{slot_name}\" has failed and NO fallback is available.\n\n"
             f"Failed: {failed_provider} / {failed_model}\n"
