@@ -69,6 +69,12 @@ export const setFrontendGlossaryMode = (fid: string, mode: 'append' | 'replace')
 export const deleteFrontendGlossary = (fid: string): Promise<{ status: string }> =>
   request(`/admin/knowledge/glossary/frontend/${fid}`, { method: 'DELETE' });
 
+// --- Admin settings (Sprint 12) ---
+export interface AppSettings { retention_hours: number; app_language: string }
+export const getAppSettings = (): Promise<AppSettings> => request('/admin/settings');
+export const updateAppSettings = (data: Partial<AppSettings>): Promise<AppSettings> =>
+  request('/admin/settings', { method: 'PUT', body: JSON.stringify(data) });
+
 export async function getAdminStatus(): Promise<{ setup_complete: boolean }> {
   return request('/admin/status');
 }

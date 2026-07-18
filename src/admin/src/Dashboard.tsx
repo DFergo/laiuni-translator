@@ -3,14 +3,14 @@ import FrontendsTab from './FrontendsTab'
 import PromptsTab from './PromptsTab'
 import LLMTab from './LLMTab'
 import GlossaryTab from './GlossaryTab'
-import SMTPTab from './SMTPTab'
+import SettingsTab from './SettingsTab'
 import RegisteredUsersTab from './RegisteredUsersTab'
 
 interface Props {
   onLogout: () => void
 }
 
-const TABS = ['Frontends', 'Prompts', 'LLM', 'Glossary', 'SMTP', 'Registered Users'] as const
+const TABS = ['Frontends', 'Prompts', 'LLM', 'Glossary', 'Settings', 'Registered Users'] as const
 type Tab = typeof TABS[number]
 
 export default function Dashboard({ onLogout }: Props) {
@@ -50,7 +50,7 @@ export default function Dashboard({ onLogout }: Props) {
         {activeTab === 'Prompts' && <PromptsTab />}
         {activeTab === 'LLM' && <LLMTab />}
         {activeTab === 'Glossary' && <GlossaryTab />}
-        {activeTab === 'SMTP' && <SMTPTab />}
+        {activeTab === 'Settings' && <SettingsTab />}
         {activeTab === 'Registered Users' && <RegisteredUsersTab />}
       </main>
     </div>
