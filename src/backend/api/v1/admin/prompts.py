@@ -27,11 +27,12 @@ logger = logging.getLogger("backend.admin.prompts")
 router = APIRouter(prefix="/admin/prompts", tags=["admin-prompts"])
 
 # Category mapping for UI grouping.
-# Sprint 1: HRDD chat prompts removed. LAIUNI manages the UI-string prompt
-# (translate.md); the document-translation prompt (translate_document.md) is
-# added in Sprint 2.
+# Sprint 9 (ADR-011): the document-translation *procedure* (translate_document.md)
+# is hardcoded and NOT admin-editable; only the *flavour* (persona) is editable
+# and per-frontend. translate.md remains the short UI-string prompt.
 CATEGORIES: dict[str, list[str]] = {
-    "Translation": ["translate.md"],
+    "UI strings": ["translate.md"],
+    "Translation flavour (persona)": ["translate_flavour.md"],
 }
 
 

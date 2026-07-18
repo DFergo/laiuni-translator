@@ -3,7 +3,6 @@ import {
   getLLMHealth, getLLMSettings, updateLLMSettings, resetLLMSettings,
   listFrontends, getFrontendLLMSettings, updateFrontendLLMSettings, deleteFrontendLLMSettings,
   listConnections, addConnection, updateConnection, deleteConnection, getConnectionModels,
-  getTranslationPrompt, updateTranslationPrompt,
   type LLMHealth, type LLMSettings, type LLMConnection, type ConnectionType, type Frontend,
 } from './api'
 
@@ -100,6 +99,7 @@ function SlotConfig({
             onChange={e => onSet(connKey, e.target.value)}
             className={inputCls}
           >
+            <option value="">— select a connection —</option>
             {!connections.some(c => c.id === connId) && connId && (
               <option value={connId}>{connId} (missing)</option>
             )}
@@ -137,12 +137,12 @@ function SlotConfig({
             />
           )}
           {models.length === 0 && (
-            <p className="text-xs text-gray-400 mt-1">No models discovered — enter the ID manually.</p>
+            <p className="text-xs text-gray-400 mt-1">No models discovered — enter the ID manually, or use “Test / fetch models” on the connection.</p>
           )}
         </div>
       </div>
       <div className={`grid ${isOllama ? 'grid-cols-3' : 'grid-cols-2'} gap-3`}>
-        {numField(tempKey, 'Temperature', '0 = deterministic, ~0.7 = balanced, >1 = creative.')}
+        {numField(tempKey, 'Temperature', '0 = deterministic; 0.1 recommended for translation.')}
         {numField(maxKey, 'Max Tokens', maxTokensHelp)}
         {isOllama && numField(ctxKey, 'Context Window (num_ctx)', 'Ollama only. Blank = model default.')}
       </div>
@@ -188,7 +188,7 @@ function ConnectionsCard({
   }
 
   const remove = async (id: string) => {
-    if (!confirm(`Delete connection "${id}"? Slots still pointing at it will stop working until reassigned.`)) return
+    if (!confirm(`Delete connection "${id}"? The engine will stop working until reassigned.`)) return
     await deleteConnection(id)
     await reload(); await refreshHealth()
   }
@@ -200,7 +200,7 @@ function ConnectionsCard({
       <div className="flex items-center justify-between mb-4">
         <div>
           <h3 className="text-lg font-semibold text-gray-800">Provider Connections</h3>
-          <p className="text-xs text-gray-400">OpenAI-compatible, Anthropic, or Ollama endpoints. Slots below pick a (connection, model) pair.</p>
+          <p className="text-xs text-gray-400">OpenAI-compatible, Anthropic, or Ollama endpoints. Models are auto-discovered on save; the engine below picks one.</p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={refreshHealth} className="text-xs px-3 py-1 rounded-lg border border-gray-300 text-gray-500 hover:bg-gray-50 font-medium">Refresh</button>
@@ -224,7 +224,7 @@ function ConnectionsCard({
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-gray-400">
-                    {h ? (h.status === 'online' ? `${h.models.length} model(s)` : (h.error ? 'offline' : 'offline')) : ''}
+                    {h ? (h.status === 'online' ? `${h.models.length} model(s)` : 'offline') : `${(c.model_ids || []).length || ''} ${(c.model_ids || []).length ? 'model(s)' : ''}`}
                   </span>
                   <button onClick={() => startEdit(c)} className="text-xs px-2 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50">Edit</button>
                   <button onClick={() => remove(c.id)} className="text-xs px-2 py-1 rounded border border-gray-300 text-gray-400 hover:text-uni-red">Delete</button>
@@ -269,7 +269,7 @@ function ConnForm({
           <label className="block text-xs font-medium text-gray-600 mb-1">ID</label>
           <input value={draft.id || ''} disabled={!isNew}
             onChange={e => set('id', e.target.value)}
-            placeholder="e.g. openrouter, claude-prod"
+            placeholder="e.g. omlx, openrouter, claude-prod"
             className={`${inputCls} ${!isNew ? 'bg-gray-50 text-gray-400' : ''}`} />
         </div>
         <div>
@@ -300,7 +300,7 @@ function ConnForm({
         <label className="block text-xs font-medium text-gray-600 mb-1">Model allowlist (optional, comma-separated)</label>
         <input value={(draft.model_ids || []).join(', ')}
           onChange={e => set('model_ids', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
-          placeholder="blank = auto-discover all models" className={inputCls} />
+          placeholder="blank = auto-discover all models on save" className={inputCls} />
       </div>
       <div className="flex items-center gap-3">
         <label className="flex items-center gap-2 cursor-pointer">
@@ -323,7 +323,7 @@ function ConnForm({
 }
 
 // ---------------------------------------------------------------------------
-// Main tab
+// Main tab — single translation engine (Sprint 9 / ADR-010)
 // ---------------------------------------------------------------------------
 
 export default function LLMTab() {
@@ -336,48 +336,19 @@ export default function LLMTab() {
   const [success, setSuccess] = useState('')
   const dirty = useRef(false)
 
-  // Translation prompt (Sprint 20; editable, disk source-of-truth)
-  const [translatePrompt, setTranslatePrompt] = useState('')
-  const [translatePromptSaved, setTranslatePromptSaved] = useState('')
-  const [translatePromptMsg, setTranslatePromptMsg] = useState('')
-
   const refreshHealth = async () => {
     try { setHealth(await getLLMHealth()) }
     catch (err) { setError(err instanceof Error ? err.message : 'Failed to load health') }
   }
-
   const reloadConnections = async () => {
     try { setConnections((await listConnections()).connections) } catch { /* ignore */ }
   }
-
   const loadAll = async () => {
     try {
-      const [h, s, c, tp] = await Promise.all([getLLMHealth(), getLLMSettings(), listConnections(), getTranslationPrompt()])
+      const [h, s, c] = await Promise.all([getLLMHealth(), getLLMSettings(), listConnections()])
       setHealth(h); setSettings(s); setSavedSettings(s); setConnections(c.connections)
-      setTranslatePrompt(tp.prompt); setTranslatePromptSaved(tp.prompt)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load')
-    }
-  }
-
-  const handleSaveTranslatePrompt = async () => {
-    try {
-      const { prompt } = await updateTranslationPrompt(translatePrompt)
-      setTranslatePromptSaved(prompt)
-      setTranslatePromptMsg('Prompt saved'); setTimeout(() => setTranslatePromptMsg(''), 3000)
-    } catch (err) {
-      setTranslatePromptMsg(err instanceof Error ? err.message : 'Save failed')
-    }
-  }
-
-  const handleReloadTranslatePrompt = async () => {
-    if (translatePrompt !== translatePromptSaved && !confirm('Reload from disk and discard unsaved changes?')) return
-    try {
-      const { prompt } = await getTranslationPrompt()
-      setTranslatePrompt(prompt); setTranslatePromptSaved(prompt)
-      setTranslatePromptMsg('Reloaded from disk'); setTimeout(() => setTranslatePromptMsg(''), 3000)
-    } catch (err) {
-      setTranslatePromptMsg(err instanceof Error ? err.message : 'Reload failed')
     }
   }
 
@@ -420,17 +391,17 @@ export default function LLMTab() {
     setSettings({ ...settings, [key]: value })
   }
 
-  // Per-slot circuit-breaker badge (keyed connection:model)
-  const slotBadge = (slot: SlotKey) => {
+  // Engine circuit-breaker badge (keyed connection:model)
+  const engineBadge = () => {
     if (!health?.slot_health || !settings) return null
-    const key = `${settings[`${slot}_connection`]}:${settings[`${slot}_model`]}`
+    const key = `${settings.translation_connection}:${settings.translation_model}`
     const status = health.slot_health[key]
     if (status === 'down') return <span className="ml-2 text-xs font-medium text-red-600 bg-red-50 px-2 py-0.5 rounded-full">Down</span>
     if (status === 'degraded') return <span className="ml-2 text-xs font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">Degraded</span>
     return null
   }
 
-  // Per-frontend overrides
+  // Per-frontend engine overrides
   const [frontends, setFrontends] = useState<Frontend[]>([])
   const [feOverrides, setFeOverrides] = useState<Record<string, Partial<LLMSettings>>>({})
   const [feOpen, setFeOpen] = useState<string | null>(null)
@@ -489,96 +460,25 @@ export default function LLMTab() {
 
       {settings && (
         <>
-          {/* Inference */}
+          {/* Translation engine (single) */}
           <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
-            <h3 className="text-lg font-semibold text-gray-800 mb-1">Inference{slotBadge('inference')}</h3>
-            <p className="text-xs text-gray-400 mb-4">Main LLM that responds to users in chat conversations.</p>
-            <SlotConfig slot="inference" connections={connections} health={health} settings={settings} onSet={setField} />
-            <div className="border-t border-gray-200 pt-4 mt-4">
-              <label className="flex items-start gap-3 cursor-pointer">
-                {toggle(settings.multimodal_enabled, () => setField('multimodal_enabled', !settings.multimodal_enabled))}
-                <div>
-                  <span className="text-sm font-medium text-gray-700">Analyse uploaded images with the inference model</span>
-                  <p className="text-xs text-gray-400">
-                    Only enable if the selected inference model supports vision (e.g. Gemma 3/4, Qwen2.5-VL, llava).
-                    When on, every uploaded JPG/PNG is described by the inference model at upload time and added to the case evidence.
-                    When off (default), images are stored without analysis.
-                  </p>
-                </div>
-              </label>
-            </div>
-          </div>
-
-          {/* Reporter */}
-          <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
-            <h3 className="text-lg font-semibold text-gray-800 mb-1">Reporter{slotBadge('reporter')}</h3>
+            <h3 className="text-lg font-semibold text-gray-800 mb-1">Translation engine{engineBadge()}</h3>
             <p className="text-xs text-gray-400 mb-4">
-              Dedicated LLM for structured internal documents (case file + UNI summary). Use a model specialised for long, factual output.
-            </p>
-            <SlotConfig slot="reporter" connections={connections} health={health} settings={settings} onSet={setField} />
-            <div className="border-t border-gray-200 pt-4 mt-4">
-              <label className="flex items-center gap-3 cursor-pointer">
-                {toggle(settings.use_reporter_for_user_summary, () => setField('use_reporter_for_user_summary', !settings.use_reporter_for_user_summary))}
-                <div>
-                  <span className="text-sm font-medium text-gray-700">Use reporter for user-facing summary</span>
-                  <p className="text-xs text-gray-400">
-                    When off (default), the user summary is generated by the inference model — faster and more conversational.
-                    Internal documents always use the reporter model regardless of this toggle.
-                  </p>
-                </div>
-              </label>
-            </div>
-          </div>
-
-          {/* Context Compression (summariser) */}
-          <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
-            <div className="flex items-center justify-between mb-1">
-              <h3 className="text-lg font-semibold text-gray-800">Context Compression{slotBadge('summariser')}</h3>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <span className="text-xs text-gray-500">{settings.summariser_enabled ? 'Enabled' : 'Disabled'}</span>
-                {toggle(settings.summariser_enabled, () => setField('summariser_enabled', !settings.summariser_enabled))}
-              </label>
-            </div>
-            <p className="text-xs text-gray-400 mb-4">
-              Incrementally compresses conversation history to prevent context overflow. Uses a separate, smaller LLM to summarise older messages.
-              {!settings.summariser_enabled && ' When disabled, long conversations may be truncated by the inference model.'}
-            </p>
-            {settings.summariser_enabled && (
-              <div className="space-y-4">
-                <SlotConfig slot="summariser" connections={connections} health={health} settings={settings} onSet={setField} />
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      First Compression ({(settings.compression_first_threshold ?? 20000).toLocaleString()} tokens)
-                    </label>
-                    <input type="range" min="10000" max="50000" step="5000"
-                      value={settings.compression_first_threshold ?? 20000}
-                      onChange={e => setField('compression_first_threshold', parseInt(e.target.value))}
-                      className="w-full" />
-                    <p className="text-xs text-gray-400 mt-1">First compression triggers when context reaches this token count.</p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Compression Step ({(settings.compression_step_size ?? 15000).toLocaleString()} tokens)
-                    </label>
-                    <input type="range" min="10000" max="50000" step="5000"
-                      value={settings.compression_step_size ?? 15000}
-                      onChange={e => setField('compression_step_size', parseInt(e.target.value))}
-                      className="w-full" />
-                    <p className="text-xs text-gray-400 mt-1">After the first, compress again every {((settings.compression_step_size ?? 15000) / 1000).toFixed(0)}k tokens.</p>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Translation (Sprint 20) */}
-          <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
-            <h3 className="text-lg font-semibold text-gray-800 mb-1">Translation{slotBadge('translation')}</h3>
-            <p className="text-xs text-gray-400 mb-4">
-              Translates per-frontend <span className="font-medium">disclaimer</span> and <span className="font-medium">instructions</span> into the app languages. Edit the English source in the Frontends tab; this slot generates the translations.
+              The single model used for every translation. Pick a connection and model (discovered models populate the dropdown).
             </p>
             <SlotConfig slot="translation" connections={connections} health={health} settings={settings} onSet={setField} />
+
+            <div className="border-t border-gray-200 pt-4 mt-4">
+              <label className="flex items-start gap-3 cursor-pointer">
+                {toggle(settings.translation_enable_thinking, () => setField('translation_enable_thinking', !settings.translation_enable_thinking))}
+                <div>
+                  <span className="text-sm font-medium text-gray-700">Model reasoning (“thinking”) pass</span>
+                  <p className="text-xs text-gray-400">
+                    Off is recommended for oMLX / Qwen — it cuts latency and tokens (sends <code>enable_thinking:false</code>). Turn on only if your model relies on a visible reasoning pass.
+                  </p>
+                </div>
+              </label>
+            </div>
 
             <div className="border-t border-gray-200 pt-4 mt-4">
               <label className="flex items-start gap-3 cursor-pointer">
@@ -586,38 +486,15 @@ export default function LLMTab() {
                 <div>
                   <span className="text-sm font-medium text-gray-700">Inject glossary (filtered to the target language)</span>
                   <p className="text-xs text-gray-400">
-                    When on, canonical term translations from the Knowledge glossary are added to the prompt for each language, so domain terms use the union's preferred wording.
+                    When on, canonical term translations from the glossary are enforced in pass 2 so domain terms use the union's preferred wording.
                   </p>
                 </div>
               </label>
             </div>
 
-            <div className="border-t border-gray-200 pt-4 mt-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Translation prompt</label>
-              <p className="text-xs text-gray-400 mb-2">
-                Guides the model's tone and terminology. Source of truth is on disk (<code>/app/data/prompts/translate.md</code>); editable here or directly on the server.
-              </p>
-              <textarea
-                value={translatePrompt}
-                onChange={e => setTranslatePrompt(e.target.value)}
-                rows={12}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs font-mono focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
-              />
-              <div className="flex items-center gap-3 mt-2">
-                <button
-                  onClick={handleSaveTranslatePrompt}
-                  disabled={translatePrompt === translatePromptSaved}
-                  className="bg-uni-blue text-white rounded-lg px-4 py-1.5 text-sm font-medium hover:opacity-90 disabled:opacity-50"
-                >
-                  Save Prompt
-                </button>
-                <button onClick={handleReloadTranslatePrompt} className="text-xs text-gray-500 hover:text-uni-blue" title="Re-read from disk (picks up edits made on the server)">Reload from disk</button>
-                {translatePrompt !== translatePromptSaved && (
-                  <button onClick={() => setTranslatePrompt(translatePromptSaved)} className="text-xs text-gray-400 hover:text-gray-600">Discard</button>
-                )}
-                {translatePromptMsg && <span className="text-xs text-green-600">{translatePromptMsg}</span>}
-              </div>
-            </div>
+            <p className="text-xs text-gray-400 mt-4 border-t border-gray-100 pt-4">
+              Editable prompts live on the <span className="font-medium">Prompts</span> tab: the translation <span className="font-medium">flavour</span> (persona, per-frontend) and the UI strings. The translation <span className="font-medium">procedure</span> is fixed and not editable.
+            </p>
           </div>
 
           {/* Actions */}
@@ -634,12 +511,12 @@ export default function LLMTab() {
             {error && <span className="text-sm text-uni-red">{error}</span>}
           </div>
 
-          {/* Per-Frontend LLM overrides */}
+          {/* Per-frontend engine override */}
           {frontends.length > 0 && (
             <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
-              <h3 className="text-lg font-semibold text-gray-800 mb-1">Per-Frontend LLM</h3>
+              <h3 className="text-lg font-semibold text-gray-800 mb-1">Per-Frontend engine</h3>
               <p className="text-xs text-gray-400 mb-4">
-                Override slots for specific frontends. Frontends without overrides use the global settings above.
+                Override the engine (usually the model) for a specific frontend. Frontends without an override use the global engine above.
               </p>
               <div className="space-y-3">
                 {frontends.map(f => {
@@ -657,7 +534,7 @@ export default function LLMTab() {
                         </div>
                         <div className="flex items-center gap-2">
                           {feOpen !== f.id && (hasOverride
-                            ? <span className="text-xs text-uni-blue font-medium">Custom LLM</span>
+                            ? <span className="text-xs text-uni-blue font-medium">Custom engine</span>
                             : <span className="text-xs text-gray-400">Using global</span>)}
                           <button onClick={() => toggleFeOverride(f.id)}
                             className="text-xs px-3 py-1 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 font-medium">
@@ -668,16 +545,8 @@ export default function LLMTab() {
 
                       {feOpen === f.id && settings && (
                         <div className="mt-4 pt-4 border-t border-gray-200 space-y-4">
-                          <div>
-                            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Inference</div>
-                            <SlotConfig slot="inference" connections={connections} health={health} settings={settings}
-                              override={override} onSet={(k, v) => setFeField(f.id, k, v as string | number | null)} />
-                          </div>
-                          <div className="pt-3 border-t border-gray-100">
-                            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Reporter</div>
-                            <SlotConfig slot="reporter" connections={connections} health={health} settings={settings}
-                              override={override} onSet={(k, v) => setFeField(f.id, k, v as string | number | null)} />
-                          </div>
+                          <SlotConfig slot="translation" connections={connections} health={health} settings={settings}
+                            override={override} onSet={(k, v) => setFeField(f.id, k, v as string | number | null)} />
                           <div className="flex items-center gap-3">
                             <button onClick={() => handleFeSave(f.id)} disabled={feSaving}
                               className="bg-uni-blue text-white rounded-lg px-4 py-1.5 text-sm font-medium hover:opacity-90 disabled:opacity-50">

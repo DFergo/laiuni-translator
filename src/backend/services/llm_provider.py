@@ -90,13 +90,17 @@ class OpenAIAdapter:
             return [m["id"] for m in data.get("data", [])]
 
     async def stream(
-        self, conn, model, messages, temperature, max_tokens, num_ctx
+        self, conn, model, messages, temperature, max_tokens, num_ctx, enable_thinking=None
     ) -> AsyncIterator[str]:
         body: dict[str, Any] = {"model": model, "messages": messages, "stream": True}
         if temperature is not None:
             body["temperature"] = temperature
         if max_tokens is not None:
             body["max_tokens"] = max_tokens
+        # Sprint 9 (ADR-010): disable the model's reasoning pass (Qwen/oMLX) to cut
+        # latency + tokens. Passthrough only for openai-compatible endpoints.
+        if enable_thinking is not None:
+            body["chat_template_kwargs"] = {"enable_thinking": enable_thinking}
         url = f"{conn['base_url'].rstrip('/')}/chat/completions"
         async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
             async with client.stream("POST", url, json=body, headers=self._headers(conn)) as resp:
@@ -164,7 +168,7 @@ class AnthropicAdapter:
         return "\n\n".join(p for p in system_parts if p), converted
 
     async def stream(
-        self, conn, model, messages, temperature, max_tokens, num_ctx
+        self, conn, model, messages, temperature, max_tokens, num_ctx, enable_thinking=None
     ) -> AsyncIterator[str]:
         system, msgs = self._convert_messages(messages)
         body: dict[str, Any] = {
@@ -230,7 +234,7 @@ class OllamaAdapter:
         return out
 
     async def stream(
-        self, conn, model, messages, temperature, max_tokens, num_ctx
+        self, conn, model, messages, temperature, max_tokens, num_ctx, enable_thinking=None
     ) -> AsyncIterator[str]:
         options: dict[str, Any] = {}
         if num_ctx is not None:
@@ -428,6 +432,7 @@ class LLMProvider:
         temperature: float | None = None,
         max_tokens: int | None = None,
         num_ctx: int | None = None,
+        enable_thinking: bool | None = None,
     ) -> AsyncIterator[str]:
         """Stream chat completion tokens from a specific (connection, model).
 
@@ -447,7 +452,7 @@ class LLMProvider:
 
         tokens_yielded = 0
         async for token in _adapter_for(conn).stream(
-            conn, model, messages, temperature, max_tokens, num_ctx
+            conn, model, messages, temperature, max_tokens, num_ctx, enable_thinking
         ):
             tokens_yielded += 1
             yield token
@@ -516,6 +521,7 @@ class LLMProvider:
                     temperature=cfg.get("temperature"),
                     max_tokens=cfg.get("max_tokens"),
                     num_ctx=cfg.get("num_ctx"),
+                    enable_thinking=cfg.get("enable_thinking"),
                 ):
                     tokens_yielded += 1
                     yield token

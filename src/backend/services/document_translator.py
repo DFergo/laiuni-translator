@@ -28,10 +28,12 @@ import re
 from pathlib import Path
 from typing import Any
 
-from src.api.v1.admin.llm import get_llm_settings, load_document_translation_prompt
+from src.api.v1.admin.llm import (
+    get_llm_settings, load_document_translation_prompt, load_document_flavour,
+)
 from src.core.languages import language_name
 from src.services.glossary_slice import slice_glossary, format_glossary_block
-from src.services.llm_provider import llm, build_fallback_chain
+from src.services.llm_provider import llm
 
 logger = logging.getLogger("backend.document_translator")
 
@@ -255,15 +257,29 @@ def count_translatable_chars(path: str) -> int:
 # ---------------------------------------------------------------------------
 
 
-def _resolve_chain(connection_id: str | None, model: str | None) -> list[dict[str, Any]]:
-    """Provider chain: explicit override, else the `translation` slot (→ inference)."""
-    if connection_id:
-        return [{
-            "connection_id": connection_id, "model": model or "",
-            "temperature": None, "max_tokens": None, "num_ctx": None,
-            "_slot_name": "document-override",
-        }]
-    return build_fallback_chain(get_llm_settings(), "translation")
+def _engine_config(
+    settings: dict[str, Any], connection_id: str | None, model: str | None
+) -> dict[str, Any]:
+    """The single translation engine (Sprint 9 / ADR-010): connection + model +
+    temperature (default 0.1) + enable_thinking. An explicit ``connection_id`` /
+    ``model`` overrides the slot but **keeps** the slot temperature + thinking."""
+    temp = settings.get("translation_temperature")
+    return {
+        "connection_id": connection_id or settings.get("translation_connection") or "",
+        "model": model or settings.get("translation_model") or "",
+        "temperature": 0.1 if temp is None else temp,
+        "max_tokens": settings.get("translation_max_tokens"),
+        "num_ctx": settings.get("translation_num_ctx"),
+        "enable_thinking": settings.get("translation_enable_thinking"),
+        "_slot_name": "engine",
+    }
+
+
+def _resolve_chain(
+    connection_id: str | None = None, model: str | None = None, frontend_id: str = ""
+) -> list[dict[str, Any]]:
+    """Single-engine chain, frontend-aware (per-server model/temperature override)."""
+    return [_engine_config(get_llm_settings(frontend_id), connection_id, model)]
 
 
 async def _translate_segment(
@@ -336,12 +352,16 @@ async def translate(
     user_glossary: str = "",
     connection_id: str | None = None,
     model: str | None = None,
+    frontend_id: str = "",
 ) -> dict[str, Any]:
     """Fill ``ir`` with a translation of every translatable segment for each
     target language. Non-translatable segments are left as source. Mutates and
     returns ``ir`` (each translatable segment gains ``out[lang]``)."""
-    system_prompt = load_document_translation_prompt()
-    chain = _resolve_chain(connection_id, model)
+    # System prompt = hardcoded procedure + editable per-frontend flavour (ADR-011).
+    procedure = load_document_translation_prompt()
+    flavour = load_document_flavour(frontend_id)
+    system_prompt = procedure + (f"\n\n## House style (this instance)\n\n{flavour}" if flavour else "")
+    chain = _resolve_chain(connection_id, model, frontend_id)
     if not chain or not chain[0].get("connection_id"):
         raise ValueError("no translation connection resolved (register one / set the translation slot)")
 
@@ -398,10 +418,11 @@ async def translate_document(
     out_dir: str | None = None,
     connection_id: str | None = None,
     model: str | None = None,
+    frontend_id: str = "",
 ) -> dict[str, str]:
     """End-to-end: extract → translate → recompose. Returns ``{lang: out_path}``."""
     ir = extract(path)
-    await translate(ir, source_lang, target_langs, user_glossary, connection_id, model)
+    await translate(ir, source_lang, target_langs, user_glossary, connection_id, model, frontend_id)
     src = Path(path)
     outputs: dict[str, str] = {}
     for lang in target_langs:

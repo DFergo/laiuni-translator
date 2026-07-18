@@ -190,6 +190,7 @@ export interface LLMSettings {
   translation_max_tokens: number | null
   translation_num_ctx: number | null
   translation_glossary_enabled: boolean
+  translation_enable_thinking: boolean
   compression_threshold: number
   compression_first_threshold: number
   compression_step_size: number

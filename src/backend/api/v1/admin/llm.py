@@ -55,12 +55,16 @@ _DEFAULTS: dict[str, Any] = {
     "summariser_temperature": None,
     "summariser_max_tokens": None,
     "summariser_num_ctx": None,
+    # The single engine (Sprint 9 / ADR-010): the `translation_*` slot drives every
+    # LLM call. Temperature defaults to 0.1 (n8n parity); enable_thinking passthrough
+    # defaults to False (disable the model's reasoning pass for oMLX/Qwen).
     "translation_connection": "",
     "translation_model": "",
-    "translation_temperature": None,
+    "translation_temperature": 0.1,
     "translation_max_tokens": None,
     "translation_num_ctx": None,
     "translation_glossary_enabled": False,
+    "translation_enable_thinking": False,
     "compression_threshold": 0.75,  # legacy — kept for migration
     "compression_first_threshold": 20000,  # first compression at N tokens
     "compression_step_size": 15000,  # compress again every N tokens after first
@@ -211,6 +215,7 @@ class LLMSettingsRequest(BaseModel):
     translation_max_tokens: int | None = None
     translation_num_ctx: int | None = None
     translation_glossary_enabled: bool | None = None
+    translation_enable_thinking: bool | None = None
     compression_threshold: float | None = None  # legacy
     compression_first_threshold: int | None = None
     compression_step_size: int | None = None
@@ -235,22 +240,41 @@ async def list_connections(_: dict = Depends(require_admin)):
     return {"connections": connections.all()}
 
 
+async def _autopopulate_models(record: dict[str, Any]) -> dict[str, Any]:
+    """Best-effort: if the connection has no model allowlist, discover the
+    provider's models and persist them to ``model_ids`` so the admin model
+    ``<select>`` renders (Sprint 9 / SPEC §11.2). Never raises; manual entry
+    stays the fallback when discovery fails or returns nothing."""
+    if record.get("model_ids"):
+        return record
+    try:
+        res = await llm.check_connection(record)
+        models = res.get("models") or []
+        if models:
+            return connections.update(record["id"], {"model_ids": models})
+    except Exception as e:  # discovery is optional — don't block the save
+        logger.debug(f"Model auto-discovery skipped for {record.get('id')}: {e}")
+    return record
+
+
 @router.post("/connections")
 async def add_connection(req: ConnectionRequest, _: dict = Depends(require_admin)):
-    """Add a provider connection."""
+    """Add a provider connection (auto-discovers its models when no allowlist)."""
     try:
-        return connections.add(req.model_dump(exclude_none=True))
+        record = connections.add(req.model_dump(exclude_none=True))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    return await _autopopulate_models(record)
 
 
 @router.put("/connections/{connection_id}")
 async def update_connection(connection_id: str, req: ConnectionRequest, _: dict = Depends(require_admin)):
-    """Update a provider connection."""
+    """Update a provider connection (re-discovers models when the allowlist is empty)."""
     try:
-        return connections.update(connection_id, req.model_dump(exclude_unset=True))
+        record = connections.update(connection_id, req.model_dump(exclude_unset=True))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    return await _autopopulate_models(record)
 
 
 @router.delete("/connections/{connection_id}")
@@ -352,7 +376,9 @@ def load_translation_prompt() -> str:
 
 
 def load_document_translation_prompt() -> str:
-    """Effective document-translation prompt: disk override if present, else bundled."""
+    """The document-translation **procedure** (Sprint 9 / ADR-011): hardcoded and
+    NOT per-frontend-editable — the two-pass mechanics, format rules and
+    output-only contract. Disk override (global) if present, else bundled."""
     if _DOC_TRANSLATE_PROMPT_PATH.exists():
         try:
             return _DOC_TRANSLATE_PROMPT_PATH.read_text()
@@ -361,6 +387,32 @@ def load_document_translation_prompt() -> str:
     if _DOC_TRANSLATE_PROMPT_BUNDLED.exists():
         return _DOC_TRANSLATE_PROMPT_BUNDLED.read_text()
     return load_translation_prompt()
+
+
+# Editable per-frontend FLAVOUR block (persona) injected into the procedure (ADR-011).
+_FLAVOUR_PROMPT_PATH = PROMPTS_DIR / "translate_flavour.md"
+_FLAVOUR_PROMPT_BUNDLED = Path(__file__).parent.parent.parent.parent / "prompts" / "translate_flavour.md"
+
+
+def load_document_flavour(frontend_id: str = "") -> str:
+    """The editable translation **flavour** (persona) — per-frontend when the
+    prompt mode is per_frontend and a custom file exists, else global, else
+    bundled. Injected into the hardcoded procedure by the document translator."""
+    from src.services.prompt_assembler import get_prompt_mode
+    if frontend_id and get_prompt_mode() == "per_frontend":
+        fe = CAMPAIGNS_DIR / frontend_id / "prompts" / "translate_flavour.md"
+        if fe.exists():
+            try:
+                return fe.read_text().strip()
+            except OSError:
+                pass
+    for p in (_FLAVOUR_PROMPT_PATH, _FLAVOUR_PROMPT_BUNDLED):
+        if p.exists():
+            try:
+                return p.read_text().strip()
+            except OSError:
+                pass
+    return ""
 
 
 class TranslationPromptRequest(BaseModel):
