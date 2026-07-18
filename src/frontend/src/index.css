@@ -1,3 +1,27 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* DESIGN.md default tokens — a deployed frontend overrides these at runtime
+   (branding is per-frontend, never hardcoded in a component). */
+:root {
+  --color-primary: #1F4E79;
+  --color-secondary: #2E7D6B;
+  --color-accent: #E8A33D;
+  --color-bg: #F7F8FA;
+  --color-surface: #FFFFFF;
+  --color-text-primary: #1A1D21;
+  --color-text-secondary: #5B636B;
+  --color-border: #E2E6EA;
+  --color-danger: #C0392B;
+}
+
+body {
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
