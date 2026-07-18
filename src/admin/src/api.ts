@@ -52,6 +52,23 @@ export const importFrontendFolder = (fid: string, path: string): Promise<{ impor
   request(`/admin/import/frontend/${fid}/from-folder`, { method: 'POST', body: JSON.stringify({ path }) });
 export const importGlobalConfig = (file: File) => uploadZip<{ imported: boolean; note?: string }>('/admin/import/global', file);
 
+// --- Glossary (Sprint 10) ---
+export interface GlossaryCount { term_count: number; languages: string[]; per_language: Record<string, number> }
+export interface GlossaryCoverage {
+  base: GlossaryCount
+  config?: { mode: 'append' | 'replace'; has_glossary: boolean }
+  server?: GlossaryCount | null
+  effective?: GlossaryCount
+}
+export const getGlossaryCoverage = (fid?: string): Promise<GlossaryCoverage> =>
+  request(`/admin/knowledge/glossary/coverage${fid ? `?frontend_id=${fid}` : ''}`);
+export const uploadGlossary = (file: File, fid?: string) =>
+  uploadZip<{ terms: number; frontend_id: string | null }>(`/admin/knowledge/glossary/upload${fid ? `?frontend_id=${fid}` : ''}`, file);
+export const setFrontendGlossaryMode = (fid: string, mode: 'append' | 'replace'): Promise<{ mode: string; has_glossary: boolean }> =>
+  request(`/admin/knowledge/glossary/frontend/${fid}/config`, { method: 'PUT', body: JSON.stringify({ mode }) });
+export const deleteFrontendGlossary = (fid: string): Promise<{ status: string }> =>
+  request(`/admin/knowledge/glossary/frontend/${fid}`, { method: 'DELETE' });
+
 export async function getAdminStatus(): Promise<{ setup_complete: boolean }> {
   return request('/admin/status');
 }

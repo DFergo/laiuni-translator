@@ -287,17 +287,15 @@ async def _translate_segment(
     *,
     source_name: str,
     target_name: str,
-    source_code: str,
-    target_code: str,
     ctx_before: str,
     ctx_after: str,
-    user_glossary: str,
+    sliced: list[dict[str, str]],
     system_prompt: str,
     chain: list[dict[str, Any]],
 ) -> str:
-    """Translate one segment's text: pass 1 (draft, neighbour context) → pass 2
-    (sliced-glossary review). Returns the corrected translation (no trailing
-    newline handling — the caller re-attaches the source's trailing newlines)."""
+    """Translate one segment: pass 1 (draft, neighbour context) → pass 2 only when
+    the glossary worklist is non-empty (§11.4 — skip the empty pass-2 call and use
+    the draft). Returns the corrected translation (caller re-attaches newlines)."""
     context_parts = []
     if ctx_before.strip():
         context_parts.append(f"[preceding segment]\n{ctx_before.strip()}")
@@ -318,14 +316,12 @@ async def _translate_segment(
         chain,
     ))
 
-    sliced = slice_glossary(core, source_code, target_code, user_glossary)
-    glossary_block = format_glossary_block(sliced)
-    review_terms = glossary_block or (
-        "No glossary terms apply to this segment; return the draft unchanged."
-    )
+    if not sliced:
+        return draft  # no glossary worklist → one pass, zero pass-2 call
+
     pass2_user = (
         f"Pass 2 — Glossary review. Target language: {target_name}.\n\n"
-        f"Your draft:\n{draft}\n\n{review_terms}\n\nReturn the corrected segment only."
+        f"Your draft:\n{draft}\n\n{format_glossary_block(sliced)}\n\nReturn the corrected segment only."
     )
     return _strip_think(await llm.chat_with_fallback(
         [{"role": "system", "content": system_prompt},
@@ -365,26 +361,34 @@ async def translate(
     if not chain or not chain[0].get("connection_id"):
         raise ValueError("no translation connection resolved (register one / set the translation slot)")
 
+    # Resolve the effective glossary once per job: base + per-server (replace|append);
+    # the per-job user glossary wins per segment (§11.3, precedence user > server > base).
+    from src.api.v1.admin.knowledge import resolve_glossary
+    glossary_terms = resolve_glossary(frontend_id)
+
     source_name = language_name(source_lang)
     segs = ir["segments"]
     trans_idx = [i for i, s in enumerate(segs) if s["translate"]]
 
     for lang in target_langs:
         target_name = language_name(lang)
+        lang_covered = 0
         for pos, i in enumerate(trans_idx):
             core, trailing = _split_trailing_newlines(segs[i]["text"])
             ctx_before = segs[trans_idx[pos - 1]]["text"] if pos > 0 else ""
             ctx_after = segs[trans_idx[pos + 1]]["text"] if pos < len(trans_idx) - 1 else ""
+            sliced = slice_glossary(core, source_lang, lang, user_glossary, base_terms=glossary_terms)
+            lang_covered += len(sliced)
             translated = await _translate_segment(
                 core,
                 source_name=source_name, target_name=target_name,
-                source_code=source_lang, target_code=lang,
                 ctx_before=ctx_before, ctx_after=ctx_after,
-                user_glossary=user_glossary,
-                system_prompt=system_prompt, chain=chain,
+                sliced=sliced, system_prompt=system_prompt, chain=chain,
             )
             # re-attach the source segment's trailing newlines → stable block spacing
             segs[i].setdefault("out", {})[lang] = translated.rstrip("\n") + trailing
+        if lang_covered == 0:
+            logger.info(f"No glossary coverage for target '{lang}' — one-pass translation (pass-2 skipped)")
         logger.info(f"Translated {len(trans_idx)} segments → {lang}")
     return ir
 
