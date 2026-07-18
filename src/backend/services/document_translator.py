@@ -30,7 +30,7 @@ from typing import Any
 
 from src.api.v1.admin.llm import (
     get_llm_settings, load_document_translation_prompt, load_plain_translation_prompt,
-    load_document_flavour,
+    load_document_flavour, load_review_prompt,
 )
 from src.core.config import config
 from src.core.languages import language_name
@@ -296,11 +296,14 @@ async def _translate_unit(
     ctx_after: str,
     sliced: list[dict[str, str]],
     system_prompt: str,
+    review_prompt: str,
     chain: list[dict[str, Any]],
 ) -> str:
     """Translate one unit of text (a whole text-native document/chunk, or one
-    structural paragraph): pass 1 (draft) → pass 2 only when the glossary worklist
-    is non-empty (§11.4 — skip the empty pass-2 call). Optional neighbour context."""
+    structural paragraph). Two independent LLM calls, each with its own
+    self-contained prompt (like n8n's separate Translate and Review nodes):
+    pass 1 (translate) → pass 2 (glossary review) only when the worklist is
+    non-empty (§11.4 — skip the empty pass-2 call). Optional neighbour context."""
     context_parts = []
     if ctx_before.strip():
         context_parts.append(f"[preceding text]\n{ctx_before.strip()}")
@@ -312,7 +315,7 @@ async def _translate_unit(
     ) if context_parts else ""
 
     pass1_user = (
-        f"Pass 1 — Draft. Source language: {source_name}. Target language: {target_name}.\n\n"
+        f"Source language: {source_name}. Target language: {target_name}.\n\n"
         f"{context_block}--- Text to translate ---\n{core}"
     )
     draft = _strip_think(await llm.chat_with_fallback(
@@ -324,13 +327,13 @@ async def _translate_unit(
     if not sliced:
         return draft  # no glossary worklist → one pass, zero pass-2 call
 
-    pass2_user = (
-        f"Pass 2 — Glossary review. Target language: {target_name}.\n\n"
-        f"Your draft:\n{draft}\n\n{format_glossary_block(sliced)}\n\nReturn the corrected text only."
+    review_user = (
+        f"Target language: {target_name}.\n\n"
+        f"Draft translation:\n{draft}\n\n{format_glossary_block(sliced)}\n\nReturn the corrected text only."
     )
     return _strip_think(await llm.chat_with_fallback(
-        [{"role": "system", "content": system_prompt},
-         {"role": "user", "content": pass2_user}],
+        [{"role": "system", "content": review_prompt},
+         {"role": "user", "content": review_user}],
         chain,
     ))
 
@@ -391,6 +394,7 @@ async def translate(
     common = dict(
         source_lang=source_lang, target_langs=target_langs, user_glossary=user_glossary,
         glossary_terms=glossary_terms, chain=chain, source_name=source_name,
+        review_prompt=load_review_prompt(),  # pass-2 procedure — no flavour, blind to pass 1
     )
     if "text" in ir:  # Path A — text-native: whole document, markdown-aware
         await _translate_text_native(
@@ -408,7 +412,7 @@ def _log_coverage(covered: int, lang: str) -> None:
 
 async def _translate_text_native(
     ir: dict[str, Any], *, source_lang, target_langs, user_glossary, glossary_terms,
-    chain, source_name, system_prompt,
+    chain, source_name, system_prompt, review_prompt,
 ) -> None:
     """Path A: translate the whole document per language in one call (two-pass);
     split into top-level-block chunks only when the source exceeds the budget."""
@@ -422,7 +426,8 @@ async def _translate_text_native(
             covered += len(sliced)
             translated = await _translate_unit(
                 core, source_name=source_name, target_name=target_name,
-                ctx_before="", ctx_after="", sliced=sliced, system_prompt=system_prompt, chain=chain)
+                ctx_before="", ctx_after="", sliced=sliced,
+                system_prompt=system_prompt, review_prompt=review_prompt, chain=chain)
             parts.append(translated.rstrip("\n") + trailing)
         ir.setdefault("doc_out", {})[lang] = "".join(parts)
         _log_coverage(covered, lang)
@@ -431,7 +436,7 @@ async def _translate_text_native(
 
 async def _translate_structural(
     ir: dict[str, Any], *, source_lang, target_langs, user_glossary, glossary_terms,
-    chain, source_name, system_prompt,
+    chain, source_name, system_prompt, review_prompt,
 ) -> None:
     """Path B: translate each structural unit (docx/pptx paragraph) as plain text,
     two-pass; structure is preserved by the library at recompose."""
@@ -449,7 +454,7 @@ async def _translate_structural(
             translated = await _translate_unit(
                 core, source_name=source_name, target_name=target_name,
                 ctx_before=ctx_before, ctx_after=ctx_after, sliced=sliced,
-                system_prompt=system_prompt, chain=chain)
+                system_prompt=system_prompt, review_prompt=review_prompt, chain=chain)
             segs[i].setdefault("out", {})[lang] = translated.rstrip("\n") + trailing
         _log_coverage(covered, lang)
         logger.info(f"Translated {len(trans_idx)} units → {lang}")

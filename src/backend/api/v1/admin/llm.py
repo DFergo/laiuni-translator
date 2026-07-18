@@ -367,6 +367,12 @@ _DOC_TRANSLATE_PROMPT_BUNDLED = Path(__file__).parent.parent.parent.parent / "pr
 _PLAIN_TRANSLATE_PROMPT_PATH = PROMPTS_DIR / "translate_plain.md"
 _PLAIN_TRANSLATE_PROMPT_BUNDLED = Path(__file__).parent.parent.parent.parent / "prompts" / "translate_plain.md"
 
+# Pass-2 reviewer procedure — reconciles a draft against the glossary worklist.
+# A separate, self-contained prompt (blind to how the draft was made), like n8n's
+# separate Review node. Shared by Path A and Path B.
+_REVIEW_PROMPT_PATH = PROMPTS_DIR / "translate_review.md"
+_REVIEW_PROMPT_BUNDLED = Path(__file__).parent.parent.parent.parent / "prompts" / "translate_review.md"
+
 
 def load_translation_prompt() -> str:
     """Effective translation prompt: disk override if present, else bundled default."""
@@ -404,6 +410,20 @@ def load_plain_translation_prompt() -> str:
     if _PLAIN_TRANSLATE_PROMPT_BUNDLED.exists():
         return _PLAIN_TRANSLATE_PROMPT_BUNDLED.read_text()
     return load_document_translation_prompt()
+
+
+def load_review_prompt() -> str:
+    """The pass-2 terminology-review procedure (shared A/B). Disk override, else bundled."""
+    if _REVIEW_PROMPT_PATH.exists():
+        try:
+            return _REVIEW_PROMPT_PATH.read_text()
+        except OSError:
+            pass
+    if _REVIEW_PROMPT_BUNDLED.exists():
+        return _REVIEW_PROMPT_BUNDLED.read_text()
+    return ("You are a terminology reviewer. Given a draft translation and a worklist of "
+            "`source term → required target term`, correct each term in the draft, integrated "
+            "grammatically, and change nothing else. Return only the corrected text.")
 
 
 # Editable per-frontend FLAVOUR block (persona) injected into the procedure (ADR-011).
