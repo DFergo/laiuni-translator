@@ -75,8 +75,7 @@ export interface AppSettings {
   app_language: string
   schedule_window_start_hour: number
   schedule_window_duration_hours: number
-  allow_user_schedule_choice: boolean
-  schedule_default_immediate: boolean
+  schedule_mode: 'scheduled' | 'immediate' | 'both'
 }
 export const getAppSettings = (): Promise<AppSettings> => request('/admin/settings');
 export const updateAppSettings = (data: Partial<AppSettings>): Promise<AppSettings> =>
@@ -143,8 +142,7 @@ export interface FrontendConfig {
   // Optional per-frontend scheduling overrides (null/undefined = use global Settings).
   schedule_window_start_hour?: number | null
   schedule_window_duration_hours?: number | null
-  allow_user_schedule_choice?: boolean | null
-  schedule_default_immediate?: boolean | null
+  schedule_mode?: 'scheduled' | 'immediate' | 'both' | null
 }
 
 export async function getFrontendConfig(id: string): Promise<{ frontend_id: string; config: FrontendConfig }> {

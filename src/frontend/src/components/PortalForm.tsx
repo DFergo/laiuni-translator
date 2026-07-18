@@ -16,16 +16,17 @@ export function PortalForm({
   onSubmit: (o: SubmitOpts) => void
 }) {
   const t = useT()
-  // Scheduling policy (§12.6): whether the user may pick, and the default. When
-  // they may not choose, the toggle is hidden and the admin default is used.
-  const mayChoose = scheduling?.may_choose ?? true
-  const defaultImmediate = scheduling?.default_immediate ?? false
+  // Scheduling policy (§12.6): one mode drives the buttons. 'both' shows the
+  // toggle (default scheduled); 'immediate'/'scheduled' force that mode with no
+  // toggle — so the UI never hides a policy the user can't see.
+  const policy = scheduling?.mode ?? 'both'
+  const mayChoose = policy === 'both'
   const [file, setFile] = useState<File | null>(null)
   const [source, setSource] = useState('en')
   const [targets, setTargets] = useState<Set<string>>(new Set())
   const [glossary, setGlossary] = useState('')
   const [showGlossary, setShowGlossary] = useState(false)
-  const [mode, setMode] = useState<'immediate' | 'scheduled'>(defaultImmediate ? 'immediate' : 'scheduled')
+  const [mode, setMode] = useState<'immediate' | 'scheduled'>(policy === 'immediate' ? 'immediate' : 'scheduled')
 
   const blocked = file ? tierInfo(file.name, formats).blocked : false
   const canSubmit = !!file && !blocked && targets.size > 0 && !busy

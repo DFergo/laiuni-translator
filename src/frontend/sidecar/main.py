@@ -364,7 +364,7 @@ class AuthResultRequest(BaseModel):
     status: str  # "code_sent", "verified", "invalid_code", "not_authorized", "smtp_error", "smtp_not_configured"
     email: str = ""
     token: str = ""  # Sprint 5: user bearer token, present when status == "verified"
-    scheduling: dict[str, Any] | None = None  # Sprint 13: {may_choose, default_immediate}, on "verified"
+    scheduling: dict[str, Any] | None = None  # Sprint 13: {mode: scheduled|immediate|both}, on "verified"
 
 
 @app.post("/internal/auth/request-code")

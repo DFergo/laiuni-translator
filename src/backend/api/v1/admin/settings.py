@@ -33,8 +33,10 @@ def _defaults() -> dict[str, Any]:
         # over to the next night if the window closes first.
         "schedule_window_start_hour": config.schedule_default_hour,  # local hour the window opens
         "schedule_window_duration_hours": 3,          # how long the window stays open
-        "allow_user_schedule_choice": True,           # may the user pick immediate vs scheduled?
-        "schedule_default_immediate": False,          # default when the user can't/doesn't choose
+        # One exclusive choice that drives exactly the buttons the user sees —
+        # no silent policy. "scheduled" = every job runs in the window;
+        # "immediate" = every job runs now; "both" = the user picks.
+        "schedule_mode": "both",
     }
 
 
@@ -63,16 +65,14 @@ def retention_hours() -> int:
     return int(get_setting("retention_hours", config.retention_hours))
 
 
-_SCHEDULE_KEYS = (
-    "schedule_window_start_hour", "schedule_window_duration_hours",
-    "allow_user_schedule_choice", "schedule_default_immediate",
-)
+_SCHEDULE_MODES = ("scheduled", "immediate", "both")
 
 
 def scheduling(frontend_id: str = "") -> dict[str, Any]:
-    """The effective scheduling-window settings (Sprint 13, §12.6), resolved
-    per-frontend: a frontend's config may override any of the four keys; anything
-    it leaves unset falls back to the global admin Settings."""
+    """The effective scheduling settings (Sprint 13, §12.6), resolved per-frontend:
+    a frontend's config may override any key; anything it leaves unset falls back
+    to the global admin Settings. ``mode`` is one of scheduled | immediate | both
+    and drives exactly the buttons the portal shows."""
     s = load_settings()
     fe: dict[str, Any] = {}
     if frontend_id:
@@ -86,11 +86,13 @@ def scheduling(frontend_id: str = "") -> dict[str, Any]:
         v = fe.get(key)
         return v if v is not None else s.get(key, default)
 
+    mode = pick("schedule_mode", "both")
+    if mode not in _SCHEDULE_MODES:
+        mode = "both"
     return {
         "start_hour": int(pick("schedule_window_start_hour", config.schedule_default_hour)),
         "duration_hours": int(pick("schedule_window_duration_hours", 3)),
-        "allow_user_choice": bool(pick("allow_user_schedule_choice", True)),
-        "default_immediate": bool(pick("schedule_default_immediate", False)),
+        "mode": mode,
     }
 
 
@@ -99,8 +101,7 @@ class SettingsRequest(BaseModel):
     app_language: str | None = None
     schedule_window_start_hour: int | None = None
     schedule_window_duration_hours: int | None = None
-    allow_user_schedule_choice: bool | None = None
-    schedule_default_immediate: bool | None = None
+    schedule_mode: str | None = None
 
 
 @router.get("")

@@ -129,11 +129,17 @@ async def _handle_submit(client: httpx.AsyncClient, url: str, fid: str, req: dic
     from src.services.smtp_service import resolve_contact
     from src.api.v1.admin.settings import scheduling
     contact = resolve_contact(payload["sub"], fid) or {}
-    sched = scheduling(fid)
-    default_mode = "immediate" if sched["default_immediate"] else "scheduled"
-    requested = req.get("mode", default_mode)
-    may_choose = sched["allow_user_choice"] or bool(contact.get("schedule_override"))
-    mode = requested if (may_choose and requested in ("immediate", "scheduled")) else default_mode
+    # The frontend's mode drives the choice; a user with schedule_override may
+    # always choose (treated as "both"). "both" honours the user's request
+    # (default scheduled); otherwise the mode is forced.
+    policy = "both" if contact.get("schedule_override") else scheduling(fid)["mode"]
+    if policy == "immediate":
+        mode = "immediate"
+    elif policy == "scheduled":
+        mode = "scheduled"
+    else:  # both
+        requested = req.get("mode", "scheduled")
+        mode = requested if requested in ("immediate", "scheduled") else "scheduled"
     priority = bool(contact.get("priority"))
     try:
         staging = DOCUMENTS_DIR / "_staging" / ref

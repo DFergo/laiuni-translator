@@ -103,18 +103,15 @@ export default function SettingsTab() {
                   onChange={e => setApp({ ...app, schedule_window_duration_hours: Math.min(24, Math.max(1, parseInt(e.target.value) || 1)) })} className={inputCls} />
               </div>
             </div>
-            <label className="flex items-center gap-2 cursor-pointer mt-4">
-              <input type="checkbox" checked={app.allow_user_schedule_choice}
-                onChange={e => setApp({ ...app, allow_user_schedule_choice: e.target.checked })}
-                className="rounded border-gray-300 text-uni-blue focus:ring-uni-blue" />
-              <span className="text-sm text-gray-700">Let users choose immediate vs scheduled</span>
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer mt-2">
-              <input type="checkbox" checked={app.schedule_default_immediate}
-                onChange={e => setApp({ ...app, schedule_default_immediate: e.target.checked })}
-                className="rounded border-gray-300 text-uni-blue focus:ring-uni-blue" />
-              <span className="text-sm text-gray-700">Default to immediate (otherwise scheduled at the window start)</span>
-            </label>
+            <div className="mt-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Mode</label>
+              <select value={app.schedule_mode} onChange={e => setApp({ ...app, schedule_mode: e.target.value as AppSettings['schedule_mode'] })} className={inputCls}>
+                <option value="both">Both — the user chooses immediate or scheduled</option>
+                <option value="scheduled">Scheduled only — every job runs in the window</option>
+                <option value="immediate">Immediate only — every job runs now</option>
+              </select>
+              <p className="text-xs text-gray-400 mt-1">Drives exactly the buttons the user sees in the portal. Per-frontend override in the Frontends tab.</p>
+            </div>
             <button onClick={saveApp} disabled={saving} className="mt-4 bg-uni-blue text-white rounded-lg px-5 py-2 text-sm font-medium hover:opacity-90 disabled:opacity-50">
               {saving ? 'Saving…' : 'Save scheduling settings'}
             </button>

@@ -17,13 +17,9 @@ interface Cfg {
   auth_mode: 'token' | 'email-only'
   schedule_window_start_hour?: number | null
   schedule_window_duration_hours?: number | null
-  allow_user_schedule_choice?: boolean | null
-  schedule_default_immediate?: boolean | null
+  schedule_mode?: 'scheduled' | 'immediate' | 'both' | null
 }
 
-// tri-state select value <-> nullable boolean ('' = use global)
-const boolToSel = (v: boolean | null | undefined) => (v == null ? '' : v ? 'yes' : 'no')
-const selToBool = (s: string): boolean | null => (s === '' ? null : s === 'yes')
 const numOrNull = (s: string): number | null => (s.trim() === '' ? null : Number(s))
 
 export default function FrontendConfigPanel({ frontendId }: { frontendId: string }) {
@@ -102,22 +98,14 @@ export default function FrontendConfigPanel({ frontendId }: { frontendId: string
               onChange={e => set({ schedule_window_duration_hours: numOrNull(e.target.value) })}
               placeholder="global" className={inputCls} />
           </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Let users choose immediate/scheduled</label>
-            <select value={boolToSel(config.allow_user_schedule_choice)}
-              onChange={e => set({ allow_user_schedule_choice: selToBool(e.target.value) })} className={inputCls}>
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-medium text-gray-600 mb-1">Mode</label>
+            <select value={config.schedule_mode ?? ''}
+              onChange={e => set({ schedule_mode: (e.target.value || null) as Cfg['schedule_mode'] })} className={inputCls}>
               <option value="">— use global —</option>
-              <option value="yes">Yes</option>
-              <option value="no">No</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Default when not chosen</label>
-            <select value={boolToSel(config.schedule_default_immediate)}
-              onChange={e => set({ schedule_default_immediate: selToBool(e.target.value) })} className={inputCls}>
-              <option value="">— use global —</option>
-              <option value="yes">Immediate</option>
-              <option value="no">Scheduled (at window start)</option>
+              <option value="both">Both — the user chooses</option>
+              <option value="scheduled">Scheduled only</option>
+              <option value="immediate">Immediate only</option>
             </select>
           </div>
         </div>

@@ -227,19 +227,16 @@ async def _handle_auth_request(client: httpx.AsyncClient, frontend_url: str, aut
                     }
                     logger.error(f"Failed to send auth code to {email}")
 
-        # On sign-in, tell the portal this user's effective scheduling policy so
-        # its immediate/scheduled toggle matches what the backend will enforce
-        # (§12.6/§12.7): may they choose, and what's the default.
+        # On sign-in, tell the portal this user's effective scheduling mode so its
+        # buttons match exactly what the backend will enforce (§12.6/§12.7) — no
+        # silent policy. A user with schedule_override always gets "both".
         if result.get("status") == "verified":
             try:
                 from src.api.v1.admin.settings import scheduling
                 from src.services.smtp_service import resolve_contact
-                sc = scheduling(frontend_id)
                 contact = resolve_contact(email, frontend_id) or {}
-                result["scheduling"] = {
-                    "may_choose": bool(sc["allow_user_choice"] or contact.get("schedule_override")),
-                    "default_immediate": bool(sc["default_immediate"]),
-                }
+                mode = "both" if contact.get("schedule_override") else scheduling(frontend_id)["mode"]
+                result["scheduling"] = {"mode": mode}
             except Exception as e:
                 logger.debug(f"scheduling policy resolve failed: {e}")
 

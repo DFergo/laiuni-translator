@@ -31,9 +31,10 @@ export async function requestTokenEmailOnly(email: string): Promise<AuthResult> 
   return { token: d.token, scheduling: d.scheduling ?? null }
 }
 
-// Per-user scheduling policy returned on sign-in (§12.6/§12.7): whether the user
-// may choose immediate vs scheduled, and the default when they can't/don't.
-export interface SchedulingPolicy { may_choose: boolean; default_immediate: boolean }
+// Per-user scheduling policy returned on sign-in (§12.6/§12.7): a single mode
+// that drives exactly the buttons shown — 'both' shows the toggle, 'immediate'
+// and 'scheduled' force that mode with no toggle.
+export interface SchedulingPolicy { mode: 'scheduled' | 'immediate' | 'both' }
 export interface AuthResult { token: string; scheduling: SchedulingPolicy | null }
 
 export async function verify(email: string, code: string): Promise<AuthResult> {
