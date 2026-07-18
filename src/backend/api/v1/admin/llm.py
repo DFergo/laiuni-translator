@@ -15,7 +15,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from src.api.v1.admin.auth import require_admin
-from src.core.config import config
 from src.core.paths import LLM_SETTINGS, PROMPTS_DIR, CAMPAIGNS_DIR
 from src.services.connection_registry import connections
 from src.services.llm_provider import llm
@@ -34,27 +33,30 @@ _PROVIDER_TO_CONNECTION = {"ollama": "ollama-default", "lm_studio": "lmstudio-de
 
 
 # Params default to None → provider default applies (Sprint 19, Block D).
+# Connections/models default to "" — LAIUNI ships with an empty registry (no
+# preregistered providers); the operator wires slots to a registered connection
+# via the admin UI/API at boot.
 _DEFAULTS: dict[str, Any] = {
-    "inference_connection": "lmstudio-default",
-    "inference_model": config.lm_studio_model,
+    "inference_connection": "",
+    "inference_model": "",
     "inference_temperature": None,
     "inference_max_tokens": None,
     "inference_num_ctx": None,
-    "reporter_connection": "lmstudio-default",
-    "reporter_model": config.lm_studio_model,
+    "reporter_connection": "",
+    "reporter_model": "",
     "reporter_temperature": None,
     "reporter_max_tokens": None,
     "reporter_num_ctx": None,
     "use_reporter_for_user_summary": False,
     "multimodal_enabled": False,
     "summariser_enabled": False,
-    "summariser_connection": "ollama-default",
-    "summariser_model": config.ollama_summariser_model,
+    "summariser_connection": "",
+    "summariser_model": "",
     "summariser_temperature": None,
     "summariser_max_tokens": None,
     "summariser_num_ctx": None,
-    "translation_connection": "lmstudio-default",
-    "translation_model": config.lm_studio_model,
+    "translation_connection": "",
+    "translation_model": "",
     "translation_temperature": None,
     "translation_max_tokens": None,
     "translation_num_ctx": None,
@@ -331,6 +333,11 @@ async def reset_settings(_: dict = Depends(require_admin)):
 _TRANSLATE_PROMPT_PATH = PROMPTS_DIR / "translate.md"
 _TRANSLATE_PROMPT_BUNDLED = Path(__file__).parent.parent.parent.parent / "prompts" / "translate.md"
 
+# Document-translation prompt (Sprint 2) — long-form, format-preserving, two-pass.
+# Distinct from translate.md (short UI strings); see lessons-learned #4.
+_DOC_TRANSLATE_PROMPT_PATH = PROMPTS_DIR / "translate_document.md"
+_DOC_TRANSLATE_PROMPT_BUNDLED = Path(__file__).parent.parent.parent.parent / "prompts" / "translate_document.md"
+
 
 def load_translation_prompt() -> str:
     """Effective translation prompt: disk override if present, else bundled default."""
@@ -342,6 +349,18 @@ def load_translation_prompt() -> str:
     if _TRANSLATE_PROMPT_BUNDLED.exists():
         return _TRANSLATE_PROMPT_BUNDLED.read_text()
     return "You are a professional translator. Translate the text accurately. Return only the translation."
+
+
+def load_document_translation_prompt() -> str:
+    """Effective document-translation prompt: disk override if present, else bundled."""
+    if _DOC_TRANSLATE_PROMPT_PATH.exists():
+        try:
+            return _DOC_TRANSLATE_PROMPT_PATH.read_text()
+        except OSError:
+            pass
+    if _DOC_TRANSLATE_PROMPT_BUNDLED.exists():
+        return _DOC_TRANSLATE_PROMPT_BUNDLED.read_text()
+    return load_translation_prompt()
 
 
 class TranslationPromptRequest(BaseModel):

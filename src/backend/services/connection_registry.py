@@ -7,9 +7,9 @@ connections. A connection record:
      prefix_id, model_ids[] (allowlist), enable}
 
 Persisted at DATA_DIR/config/connections.json (REFACTOR §0.6 layout starts
-here). Atomic writes (lesson #5). On first load the registry seeds itself
-from deployment_backend.json so the existing Ollama/LM Studio production keeps
-working unchanged.
+here). Atomic writes (lesson #5). LAIUNI ships with an **empty** registry — no
+providers are preregistered; the operator registers what they need at boot via
+the admin API (lesson #8).
 """
 
 import json
@@ -17,8 +17,6 @@ import logging
 import os
 from pathlib import Path
 from typing import Any
-
-from src.core.config import config
 
 logger = logging.getLogger("backend.connections")
 
@@ -28,32 +26,13 @@ VALID_TYPES = {"openai", "anthropic", "ollama"}
 
 
 def _seed_connections() -> list[dict[str, Any]]:
-    """Build the default connections from the deployment config.
+    """No preregistered connections — LAIUNI starts with an empty registry.
 
-    lmstudio-default is an OpenAI-compatible connection (LM Studio exposes the
-    OpenAI API); ollama-default is a native Ollama connection. Both enabled so
-    a fresh install keeps the current production wiring.
+    The operator registers the connection(s) they need at boot via the admin
+    API (``POST /admin/llm/connections``). Nothing provider-specific is baked
+    in (lesson #8).
     """
-    return [
-        {
-            "id": "ollama-default",
-            "type": "ollama",
-            "base_url": config.ollama_endpoint,
-            "api_key": "",
-            "prefix_id": "",
-            "model_ids": [],
-            "enable": True,
-        },
-        {
-            "id": "lmstudio-default",
-            "type": "openai",
-            "base_url": config.lm_studio_endpoint,
-            "api_key": "",
-            "prefix_id": "",
-            "model_ids": [],
-            "enable": True,
-        },
-    ]
+    return []
 
 
 class ConnectionRegistry:
