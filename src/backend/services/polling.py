@@ -51,6 +51,13 @@ def invalidate_config_cache(frontend_id: str = ""):
         _config_pushed.clear()
 
 
+def invalidate_languages_cache():
+    """Clear the languages push cache for all frontends so the catalogue is
+    re-pushed on next poll. Called when the glossary changes (the offered
+    languages are derived from it) — the only time the catalogue moves."""
+    _languages_pushed.clear()
+
+
 async def _push_languages_if_needed(client: httpx.AsyncClient, url: str, fid: str):
     """Push the 17-language + tier catalogue to the sidecar (once per session)."""
     if fid in _languages_pushed:

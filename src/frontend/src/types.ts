@@ -10,6 +10,18 @@ export interface FormatTier {
   tier: 'tier1' | 'tier2' | 'tier3'
 }
 
+// Accepted formats are a fixed product constant (mirrors backend
+// core/config.py `supported_formats`) — the portal owns them, so file
+// acceptance never depends on the backend having pushed the catalogue.
+export const SUPPORTED_FORMATS: FormatTier[] = [
+  { ext: '.txt', tier: 'tier1' },
+  { ext: '.md', tier: 'tier1' },
+  { ext: '.markdown', tier: 'tier1' },
+  { ext: '.docx', tier: 'tier2' },
+  { ext: '.rtf', tier: 'tier2' },
+  { ext: '.pptx', tier: 'tier3' },
+]
+
 export interface LanguagesResponse {
   languages: Language[]
   formats: FormatTier[]

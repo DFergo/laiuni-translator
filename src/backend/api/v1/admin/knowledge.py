@@ -55,6 +55,17 @@ def ensure_defaults():
             logger.info(f"Installed default knowledge file: {name}")
 
 
+def _invalidate_offered_languages() -> None:
+    """The offered translation languages are derived from the base glossary
+    (§12.3). When it changes, mark the sidecar catalogue stale so the poll loop
+    re-pushes it — the only moment the language set moves."""
+    try:
+        from src.services.polling import invalidate_languages_cache
+        invalidate_languages_cache()
+    except Exception as e:
+        logger.debug(f"languages cache invalidation skipped: {e}")
+
+
 def load_glossary() -> dict[str, Any]:
     """Load glossary for prompt injection."""
     path = _KNOWLEDGE_DIR / "glossary.json"
@@ -189,6 +200,7 @@ async def update_glossary(data: GlossaryUpdate, _: dict = Depends(require_admin)
     path = _KNOWLEDGE_DIR / "glossary.json"
     _atomic_write(path, payload)
     logger.info(f"Glossary saved ({len(data.terms)} terms)")
+    _invalidate_offered_languages()
     return payload
 
 
@@ -222,6 +234,7 @@ async def upload_glossary(
     else:
         _atomic_write(_KNOWLEDGE_DIR / "glossary.json", payload)
         logger.info(f"Base glossary replaced via upload ({len(payload['terms'])} terms)")
+        _invalidate_offered_languages()  # base glossary drives the offered languages
     return {"terms": len(payload["terms"]), "frontend_id": frontend_id}
 
 

@@ -556,7 +556,18 @@ _job_submits: list[dict[str, Any]] = []
 _job_downloads: list[dict[str, Any]] = []
 _job_status_requests: list[dict[str, Any]] = []
 _jobs_lock = asyncio.Lock()
+
+# Languages/format catalogue — persisted to disk so it survives a sidecar restart
+# (it's fixed config, pushed by the backend only when the glossary changes; the
+# sidecar must not depend on a re-push at every startup).
+_LANGUAGES_FILE = Path("/app/data/languages.json")
 _languages: dict[str, Any] = {}
+if _LANGUAGES_FILE.exists():
+    try:
+        _languages = json.loads(_LANGUAGES_FILE.read_text())
+        logger.info(f"Loaded languages catalogue from disk ({len(_languages.get('languages', []))} langs)")
+    except (json.JSONDecodeError, OSError):
+        pass
 
 _AUTH_TERMINAL = ("verified", "invalid_code", "not_authorized", "smtp_error", "smtp_not_configured")
 
@@ -739,7 +750,13 @@ async def push_job_artifact(ref: str, request: Request):
 
 @app.post("/internal/languages")
 async def push_languages(body: dict[str, Any]):
+    """Backend pushes the languages/format catalogue (on first contact and when
+    the glossary changes). Persisted so it survives sidecar restarts."""
     global _languages
     _languages = body
-    logger.info(f"Languages catalogue received ({len(body.get('languages', []))} langs)")
+    _LANGUAGES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = _LANGUAGES_FILE.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(body, ensure_ascii=False, indent=2))
+    tmp.rename(_LANGUAGES_FILE)
+    logger.info(f"Languages catalogue received ({len(body.get('languages', []))} langs), persisted")
     return {"status": "ok"}

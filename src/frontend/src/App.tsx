@@ -3,6 +3,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import type { JobState, Language, FormatTier, Branding, Step } from './types'
+import { SUPPORTED_FORMATS } from './types'
 import { getLanguages, getConfig, submitJob, getJob } from './api'
 import type { SubmitOpts } from './api'
 import { translator, TContext, LANGS_RTL, type Lang } from './i18n'
@@ -23,7 +24,7 @@ export default function App() {
   const [step, setStep] = useState<Step>('auth')
   const [token, setToken] = useState('')
   const [languages, setLanguages] = useState<Language[]>([])
-  const [formats, setFormats] = useState<FormatTier[]>([])
+  const [formats] = useState<FormatTier[]>(SUPPORTED_FORMATS)  // fixed constant — no push needed
   const [branding, setBranding] = useState<Branding>({})
   const [lang, setLang] = useState<Lang>('en')
   const [authMode, setAuthMode] = useState('token')
@@ -33,10 +34,11 @@ export default function App() {
 
   const t = translator(lang)
 
-  // Load languages + config (app language + branding). The backend pushes the
-  // languages/format catalogue to the sidecar on its poll cycle, which may not
-  // have happened yet on a cold start — so retry until it's populated, otherwise
-  // the portal shows no languages and rejects every file as "unsupported".
+  // Load the offered languages + config (app language + branding). The sidecar
+  // persists the languages catalogue (pushed by the backend only when the
+  // glossary changes), so it's normally there immediately; on a first-ever cold
+  // start the backend hasn't pushed yet, so retry until it's populated. Formats
+  // are a fixed constant (above) — file acceptance never waits on a push.
   useEffect(() => {
     let alive = true
     let tries = 0
@@ -45,7 +47,7 @@ export default function App() {
         const r = await getLanguages()
         if (!alive) return
         if (r.languages.length > 0) {
-          setLanguages(r.languages); setFormats(r.formats)
+          setLanguages(r.languages)
           return
         }
       } catch { /* transient — retry */ }
