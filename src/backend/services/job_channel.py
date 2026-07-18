@@ -122,6 +122,19 @@ async def _handle_submit(client: httpx.AsyncClient, url: str, fid: str, req: dic
     # failure here (e.g. a corrupt/unreadable docx/pptx — extract runs during the
     # char count) is reported as `rejected`, never left hanging as `pending`.
     target_langs = req.get("target_langs") or []
+    # Resolve the effective mode + priority (§12.6/§12.7). The user's requested
+    # mode is honoured only if the admin allows the choice, or the user carries the
+    # schedule_override privilege; otherwise the admin default applies. Priority
+    # comes from the contact record.
+    from src.services.smtp_service import resolve_contact
+    from src.api.v1.admin.settings import scheduling
+    contact = resolve_contact(payload["sub"], fid) or {}
+    sched = scheduling()
+    default_mode = "immediate" if sched["default_immediate"] else "scheduled"
+    requested = req.get("mode", default_mode)
+    may_choose = sched["allow_user_choice"] or bool(contact.get("schedule_override"))
+    mode = requested if (may_choose and requested in ("immediate", "scheduled")) else default_mode
+    priority = bool(contact.get("priority"))
     try:
         staging = DOCUMENTS_DIR / "_staging" / ref
         staging.mkdir(parents=True, exist_ok=True)
@@ -130,7 +143,7 @@ async def _handle_submit(client: httpx.AsyncClient, url: str, fid: str, req: dic
         job = jq.enqueue(
             payload["sub"], req.get("source_lang", "en"), target_langs, tier, str(staged_file),
             frontend_id=fid, client_ref=ref, glossary=req.get("glossary", ""),
-            mode=req.get("mode", "scheduled"),
+            mode=mode, priority=priority,
         )
         job_dir = DOCUMENTS_DIR / job["id"]
         job_dir.mkdir(parents=True, exist_ok=True)

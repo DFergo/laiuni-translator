@@ -70,7 +70,14 @@ export const deleteFrontendGlossary = (fid: string): Promise<{ status: string }>
   request(`/admin/knowledge/glossary/frontend/${fid}`, { method: 'DELETE' });
 
 // --- Admin settings (Sprint 12) ---
-export interface AppSettings { retention_hours: number; app_language: string }
+export interface AppSettings {
+  retention_hours: number
+  app_language: string
+  schedule_window_start_hour: number
+  schedule_window_duration_hours: number
+  allow_user_schedule_choice: boolean
+  schedule_default_immediate: boolean
+}
 export const getAppSettings = (): Promise<AppSettings> => request('/admin/settings');
 export const updateAppSettings = (data: Partial<AppSettings>): Promise<AppSettings> =>
   request('/admin/settings', { method: 'PUT', body: JSON.stringify(data) });

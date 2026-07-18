@@ -28,7 +28,13 @@ def _defaults() -> dict[str, Any]:
     return {
         "retention_hours": config.retention_hours,   # hard-delete window (was hardcoded 48h)
         "app_language": "en",                         # default portal UI language (§12.2)
-        # Sprint 13 adds: scheduling window (start hour, duration), immediate/scheduled default.
+        # Scheduling window (Sprint 13, §12.6): a nightly window with a start hour
+        # and a duration; scheduled jobs run inside it, one at a time, and carry
+        # over to the next night if the window closes first.
+        "schedule_window_start_hour": config.schedule_default_hour,  # local hour the window opens
+        "schedule_window_duration_hours": 3,          # how long the window stays open
+        "allow_user_schedule_choice": True,           # may the user pick immediate vs scheduled?
+        "schedule_default_immediate": False,          # default when the user can't/doesn't choose
     }
 
 
@@ -57,9 +63,24 @@ def retention_hours() -> int:
     return int(get_setting("retention_hours", config.retention_hours))
 
 
+def scheduling() -> dict[str, Any]:
+    """The effective scheduling-window settings (Sprint 13, §12.6)."""
+    s = load_settings()
+    return {
+        "start_hour": int(s.get("schedule_window_start_hour", config.schedule_default_hour)),
+        "duration_hours": int(s.get("schedule_window_duration_hours", 3)),
+        "allow_user_choice": bool(s.get("allow_user_schedule_choice", True)),
+        "default_immediate": bool(s.get("schedule_default_immediate", False)),
+    }
+
+
 class SettingsRequest(BaseModel):
     retention_hours: int | None = None
     app_language: str | None = None
+    schedule_window_start_hour: int | None = None
+    schedule_window_duration_hours: int | None = None
+    allow_user_schedule_choice: bool | None = None
+    schedule_default_immediate: bool | None = None
 
 
 @router.get("")

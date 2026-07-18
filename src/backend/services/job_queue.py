@@ -73,14 +73,17 @@ def init_db() -> None:
                 estimate_s   INTEGER NOT NULL DEFAULT 0,
                 error        TEXT NOT NULL DEFAULT '',
                 created_at   REAL NOT NULL,
-                expires_at   REAL             -- set on done
+                expires_at   REAL,            -- set on done
+                priority     INTEGER NOT NULL DEFAULT 0   -- §12.7 privilege: 1 = jump the queue
             )
             """
         )
-        # Additive migration for DBs created before client_ref (Sprint 5).
+        # Additive migrations for older DBs.
         cols = {r[1] for r in conn.execute("PRAGMA table_info(jobs)")}
-        if "client_ref" not in cols:
+        if "client_ref" not in cols:  # Sprint 5
             conn.execute("ALTER TABLE jobs ADD COLUMN client_ref TEXT NOT NULL DEFAULT ''")
+        if "priority" not in cols:    # Sprint 13
+            conn.execute("ALTER TABLE jobs ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
 
 
 def detect_tier(filename: str) -> str | None:
@@ -126,6 +129,20 @@ def compute_run_at(mode: str, now: datetime, hour: int, scheduling_enabled: bool
     return candidate
 
 
+def _in_window(now: datetime, start_hour: int, duration_hours: int) -> bool:
+    """Is ``now`` inside the nightly scheduling window (§12.6)? The window opens
+    at ``start_hour``:00 local and lasts ``duration_hours`` — it may wrap past
+    midnight (e.g. 23:00 + 3h → open until 02:00)."""
+    if duration_hours >= 24:
+        return True
+    mins = now.hour * 60 + now.minute
+    start = start_hour * 60
+    end = start + duration_hours * 60
+    if end <= 24 * 60:
+        return start <= mins < end
+    return mins >= start or mins < (end - 24 * 60)  # wraps past midnight
+
+
 # ---------------------------------------------------------------------------
 # CRUD + state transitions
 # ---------------------------------------------------------------------------
@@ -142,13 +159,17 @@ def enqueue(
     client_ref: str = "",
     glossary: str = "",
     mode: str = "scheduled",
+    priority: bool = False,
     chars: int | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """Insert a new job. Computes ``run_at`` (scheduling), the duration estimate,
-    and the initial status (``queued`` if due now, else ``scheduled``)."""
+    """Insert a new job. Computes ``run_at`` (scheduled → the next window start,
+    §12.6), the duration estimate, and the initial status (``queued`` if due now,
+    else ``scheduled``). ``priority`` (§12.7) lets the job jump the queue."""
     now = now or datetime.now()
-    run_at_dt = compute_run_at(mode, now, config.schedule_default_hour, config.scheduling_enabled)
+    from src.api.v1.admin.settings import scheduling
+    start_hour = scheduling()["start_hour"]
+    run_at_dt = compute_run_at(mode, now, start_hour, config.scheduling_enabled)
     if chars is None:
         from src.services.document_translator import count_translatable_chars
         chars = count_translatable_chars(path)
@@ -161,15 +182,15 @@ def enqueue(
         conn.execute(
             """INSERT INTO jobs (id, owner_email, frontend_id, client_ref, source_lang,
                    target_langs, format, path, glossary, mode, run_at, status, progress,
-                   estimate_s, error, created_at, expires_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   estimate_s, error, created_at, expires_at, priority)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (job_id, owner_email.lower().strip(), frontend_id, client_ref, source_lang,
              json.dumps(target_langs), fmt, path, glossary, mode,
              run_at_dt.timestamp(), status, json.dumps(progress), estimate,
-             "", now.timestamp(), None),
+             "", now.timestamp(), None, 1 if priority else 0),
         )
     logger.info(f"Enqueued job {job_id} status={status} run_at={run_at_dt.isoformat()} "
-                f"langs={len(target_langs)} estimate={estimate}s")
+                f"priority={int(priority)} langs={len(target_langs)} estimate={estimate}s")
     return get(job_id)
 
 
@@ -208,16 +229,30 @@ def jobs_for_frontend(frontend_id: str, statuses: tuple[str, ...] | None = None)
     return [_row_to_job(r) for r in rows]
 
 
-def list_due(now: float | None = None) -> list[dict[str, Any]]:
-    """Waiting jobs whose run_at has passed."""
+def next_job(now: float | None = None) -> dict[str, Any] | None:
+    """The single next job to run (§12.6 sequential single-flight), or None.
+
+    Eligibility: a waiting job whose ``run_at`` has passed. **Immediate** jobs are
+    eligible anytime; **scheduled** jobs only while ``now`` is inside the nightly
+    window (unless scheduling is disabled deploy-wide, which makes everything
+    immediate). Ordered **priority first** (§12.7), then by request time (FIFO).
+    Jobs left when the window closes stay waiting → picked up next window
+    (carry-over)."""
     now = now if now is not None else time.time()
+    now_dt = datetime.fromtimestamp(now)
+    from src.api.v1.admin.settings import scheduling
+    sched = scheduling()
+    in_window = (not config.scheduling_enabled) or _in_window(
+        now_dt, sched["start_hour"], sched["duration_hours"])
+    modes = ("immediate", "scheduled") if in_window else ("immediate",)
     with _connect() as conn:
-        rows = conn.execute(
+        row = conn.execute(
             f"SELECT * FROM jobs WHERE status IN ({','.join('?' * len(_WAITING))}) "
-            f"AND run_at <= ? ORDER BY run_at",
-            (*_WAITING, now),
-        ).fetchall()
-    return [_row_to_job(r) for r in rows]
+            f"AND run_at <= ? AND mode IN ({','.join('?' * len(modes))}) "
+            f"ORDER BY priority DESC, created_at ASC LIMIT 1",
+            (*_WAITING, now, *modes),
+        ).fetchone()
+    return _row_to_job(row) if row else None
 
 
 def list_expired(now: float | None = None) -> list[dict[str, Any]]:
@@ -329,21 +364,29 @@ def sweep_expired(now: float | None = None) -> int:
     return swept
 
 
-async def run_due_jobs() -> int:
-    """Process every due job sequentially. Returns count processed."""
-    due = list_due()
-    for job in due:
+async def run_window(max_jobs: int = 1000) -> int:
+    """Process eligible jobs **one at a time** (§12.6 sequential single-flight):
+    pick the next job (priority-ordered, window-bounded), run it to completion,
+    repeat until none is eligible. Re-evaluated each iteration, so when the window
+    closes the remaining scheduled jobs simply stop being picked and carry over to
+    the next window. ``max_jobs`` is a safety bound per tick. Returns count run."""
+    count = 0
+    while count < max_jobs:
+        job = next_job()
+        if not job:
+            break
         await process_job(job)
-    return len(due)
+        count += 1
+    return count
 
 
 async def scheduler_loop(interval: int | None = None) -> None:
-    """Background loop: run due jobs, then sweep expired ones, every interval."""
+    """Background loop: run the window queue, then sweep expired ones, every interval."""
     interval = interval or config.job_scheduler_interval_seconds
     logger.info(f"Job scheduler loop started (interval={interval}s)")
     while True:
         try:
-            await run_due_jobs()
+            await run_window()
             sweep_expired()
         except Exception as e:  # never let the loop die
             logger.error(f"Scheduler loop iteration failed: {e}")

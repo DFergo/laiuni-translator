@@ -85,6 +85,43 @@ export default function SettingsTab() {
         )}
       </div>
 
+      {/* Scheduling window */}
+      <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
+        <h3 className="text-lg font-semibold text-gray-800 mb-1">Scheduling window</h3>
+        <p className="text-xs text-gray-400 mb-4">Scheduled jobs run one at a time inside a nightly window, ordered by request time (priority users first). Whatever doesn't finish carries over to the next night.</p>
+        {app && (
+          <>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Window start hour (local, 0–23)</label>
+                <input type="number" min={0} max={23} value={app.schedule_window_start_hour}
+                  onChange={e => setApp({ ...app, schedule_window_start_hour: Math.min(23, Math.max(0, parseInt(e.target.value) || 0)) })} className={inputCls} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Window duration (hours)</label>
+                <input type="number" min={1} max={24} value={app.schedule_window_duration_hours}
+                  onChange={e => setApp({ ...app, schedule_window_duration_hours: Math.min(24, Math.max(1, parseInt(e.target.value) || 1)) })} className={inputCls} />
+              </div>
+            </div>
+            <label className="flex items-center gap-2 cursor-pointer mt-4">
+              <input type="checkbox" checked={app.allow_user_schedule_choice}
+                onChange={e => setApp({ ...app, allow_user_schedule_choice: e.target.checked })}
+                className="rounded border-gray-300 text-uni-blue focus:ring-uni-blue" />
+              <span className="text-sm text-gray-700">Let users choose immediate vs scheduled</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer mt-2">
+              <input type="checkbox" checked={app.schedule_default_immediate}
+                onChange={e => setApp({ ...app, schedule_default_immediate: e.target.checked })}
+                className="rounded border-gray-300 text-uni-blue focus:ring-uni-blue" />
+              <span className="text-sm text-gray-700">Default to immediate (otherwise scheduled at the window start)</span>
+            </label>
+            <button onClick={saveApp} disabled={saving} className="mt-4 bg-uni-blue text-white rounded-lg px-5 py-2 text-sm font-medium hover:opacity-90 disabled:opacity-50">
+              {saving ? 'Saving…' : 'Save scheduling settings'}
+            </button>
+          </>
+        )}
+      </div>
+
       {/* Email / SMTP */}
       <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
         <h3 className="text-lg font-semibold text-gray-800 mb-1">Email server (SMTP)</h3>
