@@ -33,6 +33,16 @@ logger = logging.getLogger("backend.jobchannel")
 _LIVE_STATUSES = ("queued", "scheduled", "running", "done", "failed")
 
 
+def _authorize(token: str, fid: str) -> dict[str, Any] | None:
+    """Valid user token whose frontend matches the one being served. Enforcing
+    ``fid`` stops a token minted on frontend A being replayed on frontend B
+    (which may have a different whitelist)."""
+    payload = verify_user_token(token)
+    if not payload or payload.get("fid", "") != fid:
+        return None
+    return payload
+
+
 def _status_payload(job: dict[str, Any]) -> dict[str, Any]:
     """The GET /jobs/{ref} contract (SPEC §4.1)."""
     return {
@@ -59,7 +69,7 @@ async def _handle_submit(client: httpx.AsyncClient, url: str, fid: str, req: dic
     ref = req.get("ref", "")
     if not ref:
         return
-    payload = verify_user_token(req.get("token", ""))
+    payload = _authorize(req.get("token", ""), fid)
     if not payload:
         await _push_status(client, url, ref, {"ref": ref, "status": "error", "error": "unauthorized"})
         return
@@ -81,27 +91,34 @@ async def _handle_submit(client: httpx.AsyncClient, url: str, fid: str, req: dic
         return
 
     # Stage the original, enqueue (needs a path for the char count), then move it
-    # into the job dir and repoint the job so retention cleans everything.
-    staging = DOCUMENTS_DIR / "_staging" / ref
-    staging.mkdir(parents=True, exist_ok=True)
-    staged_file = staging / filename
-    staged_file.write_bytes(data)
-
+    # into the job dir and repoint the job so retention cleans everything. Any
+    # failure here (e.g. a corrupt/unreadable docx/pptx — extract runs during the
+    # char count) is reported as `rejected`, never left hanging as `pending`.
     target_langs = req.get("target_langs") or []
-    job = jq.enqueue(
-        payload["sub"], req.get("source_lang", "en"), target_langs, tier, str(staged_file),
-        frontend_id=fid, client_ref=ref, glossary=req.get("glossary", ""),
-        mode=req.get("mode", "scheduled"),
-    )
-    job_dir = DOCUMENTS_DIR / job["id"]
-    job_dir.mkdir(parents=True, exist_ok=True)
-    final_path = job_dir / filename
-    staged_file.replace(final_path)
-    jq.assign_path(job["id"], str(final_path))
     try:
-        staging.rmdir()
-    except OSError:
-        pass
+        staging = DOCUMENTS_DIR / "_staging" / ref
+        staging.mkdir(parents=True, exist_ok=True)
+        staged_file = staging / filename
+        staged_file.write_bytes(data)
+        job = jq.enqueue(
+            payload["sub"], req.get("source_lang", "en"), target_langs, tier, str(staged_file),
+            frontend_id=fid, client_ref=ref, glossary=req.get("glossary", ""),
+            mode=req.get("mode", "scheduled"),
+        )
+        job_dir = DOCUMENTS_DIR / job["id"]
+        job_dir.mkdir(parents=True, exist_ok=True)
+        final_path = job_dir / filename
+        staged_file.replace(final_path)
+        jq.assign_path(job["id"], str(final_path))
+        try:
+            staging.rmdir()
+        except OSError:
+            pass
+    except Exception as e:
+        logger.warning(f"Job submit failed ref={ref}: {e}")
+        await _push_status(client, url, ref, {"ref": ref, "status": "rejected",
+                                              "error": f"could not read the file (corrupt or unsupported): {e}"})
+        return
 
     result = _status_payload(jq.get(job["id"]))
     if tier == "tier3":
@@ -119,7 +136,7 @@ async def _handle_download(client: httpx.AsyncClient, url: str, fid: str, req: d
     """Zip the job's files and push them to the sidecar — only for the owner,
     only while ``done`` and not expired (SPEC §4.1/§8)."""
     ref = req.get("ref", "")
-    payload = verify_user_token(req.get("token", ""))
+    payload = _authorize(req.get("token", ""), fid)
     job = jq.get_by_ref(fid, ref) if ref else None
     if not payload or not job or job["owner_email"] != payload["sub"]:
         await _push_status(client, url, ref, {"ref": ref, "status": "error", "error": "unauthorized"})
@@ -151,7 +168,7 @@ async def push_statuses(client: httpx.AsyncClient, url: str, fid: str, requests:
     """Push current status for the refs the browser is polling — owner-scoped."""
     for req in requests:
         ref = req.get("ref", "")
-        payload = verify_user_token(req.get("token", ""))
+        payload = _authorize(req.get("token", ""), fid)
         job = jq.get_by_ref(fid, ref) if ref else None
         if not job:
             continue
