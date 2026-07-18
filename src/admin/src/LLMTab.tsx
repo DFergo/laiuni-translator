@@ -469,26 +469,9 @@ export default function LLMTab() {
             <SlotConfig slot="translation" connections={connections} health={health} settings={settings} onSet={setField} />
 
             <div className="border-t border-gray-200 pt-4 mt-4">
-              <label className="flex items-start gap-3 cursor-pointer">
+              <label className="flex items-center gap-3 cursor-pointer">
                 {toggle(settings.translation_enable_thinking, () => setField('translation_enable_thinking', !settings.translation_enable_thinking))}
-                <div>
-                  <span className="text-sm font-medium text-gray-700">Model reasoning (“thinking”) pass</span>
-                  <p className="text-xs text-gray-400">
-                    Off is recommended for oMLX / Qwen — it cuts latency and tokens (sends <code>enable_thinking:false</code>). Turn on only if your model relies on a visible reasoning pass.
-                  </p>
-                </div>
-              </label>
-            </div>
-
-            <div className="border-t border-gray-200 pt-4 mt-4">
-              <label className="flex items-start gap-3 cursor-pointer">
-                {toggle(settings.translation_glossary_enabled, () => setField('translation_glossary_enabled', !settings.translation_glossary_enabled))}
-                <div>
-                  <span className="text-sm font-medium text-gray-700">Inject glossary (filtered to the target language)</span>
-                  <p className="text-xs text-gray-400">
-                    When on, canonical term translations from the glossary are enforced in pass 2 so domain terms use the union's preferred wording.
-                  </p>
-                </div>
+                <span className="text-sm font-medium text-gray-700">Think <span className="font-normal text-gray-400">(Off is recommended)</span></span>
               </label>
             </div>
 

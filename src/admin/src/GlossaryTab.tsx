@@ -1,8 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
 import {
   getGlossaryCoverage, uploadGlossary, setFrontendGlossaryMode, deleteFrontendGlossary,
-  listFrontends, type GlossaryCoverage, type Frontend,
+  listFrontends, getLLMSettings, updateLLMSettings, type GlossaryCoverage, type Frontend,
 } from './api'
+
+const toggle = (on: boolean, onClick: () => void) => (
+  <div className={`relative w-10 h-5 rounded-full transition-colors flex-shrink-0 ${on ? 'bg-uni-blue' : 'bg-gray-300'}`} onClick={onClick}>
+    <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${on ? 'translate-x-5' : 'translate-x-0.5'}`} />
+  </div>
+)
 
 function CoverageLine({ label, c }: { label: string; c?: { term_count: number; languages: string[] } | null }) {
   if (!c) return <p className="text-xs text-gray-400">{label}: —</p>
@@ -21,6 +27,7 @@ export default function GlossaryTab() {
   const [feCov, setFeCov] = useState<GlossaryCoverage | null>(null)
   const [msg, setMsg] = useState('')
   const [err, setErr] = useState('')
+  const [glossaryEnabled, setGlossaryEnabled] = useState<boolean | null>(null)
   const baseInput = useRef<HTMLInputElement>(null)
   const feInput = useRef<HTMLInputElement>(null)
 
@@ -37,7 +44,16 @@ export default function GlossaryTab() {
   useEffect(() => {
     loadBase()
     listFrontends().then(({ frontends: f }) => setFrontends(f)).catch(() => {})
+    getLLMSettings().then(s => setGlossaryEnabled(s.translation_glossary_enabled)).catch(() => {})
   }, [])
+
+  const toggleIgnore = async () => {
+    if (glossaryEnabled === null) return
+    const next = !glossaryEnabled
+    setGlossaryEnabled(next)
+    try { await updateLLMSettings({ translation_glossary_enabled: next }) }
+    catch (e) { setGlossaryEnabled(!next); setErr(e instanceof Error ? e.message : 'Failed') }
+  }
 
   const onBaseFile = async (f: File | null) => {
     if (!f) return
@@ -72,6 +88,19 @@ export default function GlossaryTab() {
 
   return (
     <div className="space-y-6">
+      {/* Glossary usage */}
+      <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
+        <label className="flex items-start gap-3 cursor-pointer">
+          {toggle(glossaryEnabled === false, toggleIgnore)}
+          <div>
+            <span className="text-sm font-medium text-gray-700">Ignore glossary <span className="font-normal text-gray-400">(Off is recommended)</span></span>
+            <p className="text-xs text-gray-400">
+              When on, translations run without any glossary — base, per-server, and per-job user terms are all skipped.
+            </p>
+          </div>
+        </label>
+      </div>
+
       {/* Base glossary */}
       <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
         <h3 className="text-lg font-semibold text-gray-800 mb-1">Base glossary</h3>
