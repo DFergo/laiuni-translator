@@ -15,6 +15,9 @@ class BackendConfig(BaseModel):
     scheduling_enabled: bool = True        # disable → "scheduled" mode runs immediately
     retention_hours: int = 48              # delete files + row this long after done
     job_scheduler_interval_seconds: int = 30
+    # Sprint 11 (ADR-014): text-native docs translate whole-document per language;
+    # split into top-level-block chunks only when the source exceeds this many chars.
+    translation_input_budget_chars: int = 12000
     supported_formats: dict[str, list[str]] = {
         "tier1": [".txt", ".md", ".markdown"],
         "tier2": [".docx", ".rtf"],

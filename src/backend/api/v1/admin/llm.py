@@ -362,6 +362,11 @@ _TRANSLATE_PROMPT_BUNDLED = Path(__file__).parent.parent.parent.parent / "prompt
 _DOC_TRANSLATE_PROMPT_PATH = PROMPTS_DIR / "translate_document.md"
 _DOC_TRANSLATE_PROMPT_BUNDLED = Path(__file__).parent.parent.parent.parent / "prompts" / "translate_document.md"
 
+# Sprint 11 (ADR-014): the plain-text procedure for structure-native docs (docx/pptx),
+# where the library preserves structure and each unit is translated as plain text.
+_PLAIN_TRANSLATE_PROMPT_PATH = PROMPTS_DIR / "translate_plain.md"
+_PLAIN_TRANSLATE_PROMPT_BUNDLED = Path(__file__).parent.parent.parent.parent / "prompts" / "translate_plain.md"
+
 
 def load_translation_prompt() -> str:
     """Effective translation prompt: disk override if present, else bundled default."""
@@ -387,6 +392,18 @@ def load_document_translation_prompt() -> str:
     if _DOC_TRANSLATE_PROMPT_BUNDLED.exists():
         return _DOC_TRANSLATE_PROMPT_BUNDLED.read_text()
     return load_translation_prompt()
+
+
+def load_plain_translation_prompt() -> str:
+    """The plain-text procedure (Path B — docx/pptx units). Disk override, else bundled."""
+    if _PLAIN_TRANSLATE_PROMPT_PATH.exists():
+        try:
+            return _PLAIN_TRANSLATE_PROMPT_PATH.read_text()
+        except OSError:
+            pass
+    if _PLAIN_TRANSLATE_PROMPT_BUNDLED.exists():
+        return _PLAIN_TRANSLATE_PROMPT_BUNDLED.read_text()
+    return load_document_translation_prompt()
 
 
 # Editable per-frontend FLAVOUR block (persona) injected into the procedure (ADR-011).

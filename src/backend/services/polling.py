@@ -47,7 +47,7 @@ async def _push_languages_if_needed(client: httpx.AsyncClient, url: str, fid: st
         return
     try:
         from src.services.job_channel import build_languages_payload
-        await client.post(f"{url}/internal/languages", json=build_languages_payload())
+        await client.post(f"{url}/internal/languages", json=build_languages_payload(fid))
         _languages_pushed.add(fid)
         logger.info(f"Languages catalogue pushed to {fid}")
     except Exception as e:

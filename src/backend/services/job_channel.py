@@ -189,12 +189,25 @@ async def handle_job_requests(client: httpx.AsyncClient, url: str, data: dict[st
         await push_statuses(client, url, fid, status_requests)
 
 
-def build_languages_payload() -> dict[str, Any]:
-    """The GET /languages contract (SPEC §4.1): 17 languages + their tier."""
+def build_languages_payload(frontend_id: str = "") -> dict[str, Any]:
+    """The GET /languages contract (SPEC §4.1): the accepted languages + tiers.
+
+    The set is **configurable per frontend** (§11.4 / ADR-013): a frontend's
+    ``languages`` config narrows it (empty = the full catalogue). Never hardcoded
+    to a count."""
     from src.core.config import config
     from src.core.languages import LANGUAGES
+    allowed: set[str] | None = None
+    if frontend_id:
+        try:
+            from src.services.frontend_registry import load_config
+            langs = load_config(frontend_id).get("languages") or []
+            if langs:
+                allowed = {str(x).lower() for x in langs}
+        except Exception as e:
+            logger.debug(f"languages config load failed for {frontend_id}: {e}")
     ext_tier = {ext: tier for tier, exts in config.supported_formats.items() for ext in exts}
     return {
-        "languages": [{"code": c, "name": n} for c, n in LANGUAGES.items()],
+        "languages": [{"code": c, "name": n} for c, n in LANGUAGES.items() if allowed is None or c in allowed],
         "formats": [{"ext": ext, "tier": tier} for ext, tier in sorted(ext_tier.items())],
     }

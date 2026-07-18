@@ -4,5 +4,6 @@
   "translation_throughput_chars_per_s": 10.0,
   "schedule_default_hour": 23,
   "scheduling_enabled": true,
-  "retention_hours": 48
+  "retention_hours": 48,
+  "translation_input_budget_chars": 12000
 }

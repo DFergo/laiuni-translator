@@ -29,8 +29,10 @@ from pathlib import Path
 from typing import Any
 
 from src.api.v1.admin.llm import (
-    get_llm_settings, load_document_translation_prompt, load_document_flavour,
+    get_llm_settings, load_document_translation_prompt, load_plain_translation_prompt,
+    load_document_flavour,
 )
+from src.core.config import config
 from src.core.languages import language_name
 from src.services.glossary_slice import slice_glossary, format_glossary_block
 from src.services.llm_provider import llm
@@ -152,17 +154,15 @@ def _recompose_docx(ir: dict[str, Any], target_lang: str, out_path: str | None) 
 
 
 def _extract_rtf(p: Path) -> dict[str, Any]:
+    # rtf → markdown, then treated as a text-native document (Path A, ADR-014).
     import pypandoc
     md = pypandoc.convert_file(str(p), "markdown", format="rtf")
-    return {"format": "rtf", "source_path": str(p), "segments": _segment(md, "md")}
+    return {"format": "rtf", "source_path": str(p), "text": md}
 
 
 def _recompose_rtf(ir: dict[str, Any], target_lang: str, out_path: str | None) -> str:
     import pypandoc
-    md = "".join(
-        s.get("out", {}).get(target_lang, s["text"]) if s["translate"] else s["text"]
-        for s in ir["segments"]
-    )
+    md = ir.get("doc_out", {}).get(target_lang, ir["text"])
     out_path = out_path or _default_out(ir, target_lang)
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     pypandoc.convert_text(md, "rtf", format="markdown", outputfile=out_path)
@@ -242,14 +242,19 @@ def extract(path: str) -> dict[str, Any]:
         return _extract_rtf(p)
     if suf in _PPTX_SUFFIXES:
         return _extract_pptx(p)
+    # Text-native (Path A, ADR-014): keep the whole text; the model preserves
+    # Markdown structure in one pass (no loss-less segmentation needed).
     fmt = "md" if suf in _MD_SUFFIXES else "txt"
-    text = p.read_text(encoding="utf-8")
-    return {"format": fmt, "source_path": str(p), "segments": _segment(text, fmt)}
+    return {"format": fmt, "source_path": str(p), "text": p.read_text(encoding="utf-8")}
 
 
 def count_translatable_chars(path: str) -> int:
-    """Total characters in translatable segments — drives the duration estimate."""
-    return sum(len(s["text"]) for s in extract(path)["segments"] if s["translate"])
+    """Translatable character count — drives the duration estimate. Text-native
+    docs count the whole text; structure-native (docx/pptx) count paragraph text."""
+    ir = extract(path)
+    if "text" in ir:
+        return len(ir["text"])
+    return sum(len(s["text"]) for s in ir["segments"] if s["translate"])
 
 
 # ---------------------------------------------------------------------------
@@ -282,7 +287,7 @@ def _resolve_chain(
     return [_engine_config(get_llm_settings(frontend_id), connection_id, model)]
 
 
-async def _translate_segment(
+async def _translate_unit(
     core: str,
     *,
     source_name: str,
@@ -293,14 +298,14 @@ async def _translate_segment(
     system_prompt: str,
     chain: list[dict[str, Any]],
 ) -> str:
-    """Translate one segment: pass 1 (draft, neighbour context) → pass 2 only when
-    the glossary worklist is non-empty (§11.4 — skip the empty pass-2 call and use
-    the draft). Returns the corrected translation (caller re-attaches newlines)."""
+    """Translate one unit of text (a whole text-native document/chunk, or one
+    structural paragraph): pass 1 (draft) → pass 2 only when the glossary worklist
+    is non-empty (§11.4 — skip the empty pass-2 call). Optional neighbour context."""
     context_parts = []
     if ctx_before.strip():
-        context_parts.append(f"[preceding segment]\n{ctx_before.strip()}")
+        context_parts.append(f"[preceding text]\n{ctx_before.strip()}")
     if ctx_after.strip():
-        context_parts.append(f"[following segment]\n{ctx_after.strip()}")
+        context_parts.append(f"[following text]\n{ctx_after.strip()}")
     context_block = (
         "--- Context (for consistency only — do NOT translate this) ---\n"
         + "\n\n".join(context_parts) + "\n\n"
@@ -308,7 +313,7 @@ async def _translate_segment(
 
     pass1_user = (
         f"Pass 1 — Draft. Source language: {source_name}. Target language: {target_name}.\n\n"
-        f"{context_block}--- Segment to translate ---\n{core}"
+        f"{context_block}--- Text to translate ---\n{core}"
     )
     draft = _strip_think(await llm.chat_with_fallback(
         [{"role": "system", "content": system_prompt},
@@ -321,13 +326,31 @@ async def _translate_segment(
 
     pass2_user = (
         f"Pass 2 — Glossary review. Target language: {target_name}.\n\n"
-        f"Your draft:\n{draft}\n\n{format_glossary_block(sliced)}\n\nReturn the corrected segment only."
+        f"Your draft:\n{draft}\n\n{format_glossary_block(sliced)}\n\nReturn the corrected text only."
     )
     return _strip_think(await llm.chat_with_fallback(
         [{"role": "system", "content": system_prompt},
          {"role": "user", "content": pass2_user}],
         chain,
     ))
+
+
+def _chunk_text(text: str, budget: int) -> list[str]:
+    """Split a text-native document into chunks ≤ ``budget`` chars at top-level
+    block boundaries (blank-line runs). Loss-less: ``"".join(chunks) == text``.
+    Used only when the whole document exceeds the model input budget (§11.5)."""
+    if len(text) <= budget:
+        return [text]
+    chunks: list[str] = []
+    cur = ""
+    for seg in _segment(text, "md"):
+        if seg["translate"] and cur and len(cur) + len(seg["text"]) > budget:
+            chunks.append(cur)
+            cur = ""
+        cur += seg["text"]
+    if cur:
+        chunks.append(cur)
+    return chunks or [text]
 
 
 def _split_trailing_newlines(text: str) -> tuple[str, str]:
@@ -350,47 +373,86 @@ async def translate(
     model: str | None = None,
     frontend_id: str = "",
 ) -> dict[str, Any]:
-    """Fill ``ir`` with a translation of every translatable segment for each
-    target language. Non-translatable segments are left as source. Mutates and
-    returns ``ir`` (each translatable segment gains ``out[lang]``)."""
-    # System prompt = hardcoded procedure + editable per-frontend flavour (ADR-011).
-    procedure = load_document_translation_prompt()
-    flavour = load_document_flavour(frontend_id)
-    system_prompt = procedure + (f"\n\n## House style (this instance)\n\n{flavour}" if flavour else "")
+    """Translate ``ir`` into each target language, dispatching by path (ADR-014):
+    text-native docs (md/txt/rtf) whole-document per language; structure-native
+    docs (docx/pptx) per structural unit as plain text. Mutates and returns ``ir``."""
     chain = _resolve_chain(connection_id, model, frontend_id)
     if not chain or not chain[0].get("connection_id"):
         raise ValueError("no translation connection resolved (register one / set the translation slot)")
 
     # Resolve the effective glossary once per job: base + per-server (replace|append);
-    # the per-job user glossary wins per segment (§11.3, precedence user > server > base).
+    # the per-job user glossary wins per unit (§11.3, precedence user > server > base).
     from src.api.v1.admin.knowledge import resolve_glossary
     glossary_terms = resolve_glossary(frontend_id)
-
+    flavour = load_document_flavour(frontend_id)
+    flavour_block = f"\n\n## House style (this instance)\n\n{flavour}" if flavour else ""
     source_name = language_name(source_lang)
-    segs = ir["segments"]
-    trans_idx = [i for i, s in enumerate(segs) if s["translate"]]
 
+    common = dict(
+        source_lang=source_lang, target_langs=target_langs, user_glossary=user_glossary,
+        glossary_terms=glossary_terms, chain=chain, source_name=source_name,
+    )
+    if "text" in ir:  # Path A — text-native: whole document, markdown-aware
+        await _translate_text_native(
+            ir, system_prompt=load_document_translation_prompt() + flavour_block, **common)
+    else:  # Path B — structure-native: per unit, plain text
+        await _translate_structural(
+            ir, system_prompt=load_plain_translation_prompt() + flavour_block, **common)
+    return ir
+
+
+def _log_coverage(covered: int, lang: str) -> None:
+    if covered == 0:
+        logger.info(f"No glossary coverage for target '{lang}' — one-pass translation (pass-2 skipped)")
+
+
+async def _translate_text_native(
+    ir: dict[str, Any], *, source_lang, target_langs, user_glossary, glossary_terms,
+    chain, source_name, system_prompt,
+) -> None:
+    """Path A: translate the whole document per language in one call (two-pass);
+    split into top-level-block chunks only when the source exceeds the budget."""
+    chunks = _chunk_text(ir["text"], config.translation_input_budget_chars)
     for lang in target_langs:
         target_name = language_name(lang)
-        lang_covered = 0
+        covered, parts = 0, []
+        for chunk in chunks:
+            core, trailing = _split_trailing_newlines(chunk)
+            sliced = slice_glossary(core, source_lang, lang, user_glossary, base_terms=glossary_terms)
+            covered += len(sliced)
+            translated = await _translate_unit(
+                core, source_name=source_name, target_name=target_name,
+                ctx_before="", ctx_after="", sliced=sliced, system_prompt=system_prompt, chain=chain)
+            parts.append(translated.rstrip("\n") + trailing)
+        ir.setdefault("doc_out", {})[lang] = "".join(parts)
+        _log_coverage(covered, lang)
+        logger.info(f"Translated whole document ({len(chunks)} chunk(s)) → {lang}")
+
+
+async def _translate_structural(
+    ir: dict[str, Any], *, source_lang, target_langs, user_glossary, glossary_terms,
+    chain, source_name, system_prompt,
+) -> None:
+    """Path B: translate each structural unit (docx/pptx paragraph) as plain text,
+    two-pass; structure is preserved by the library at recompose."""
+    segs = ir["segments"]
+    trans_idx = [i for i, s in enumerate(segs) if s["translate"]]
+    for lang in target_langs:
+        target_name = language_name(lang)
+        covered = 0
         for pos, i in enumerate(trans_idx):
             core, trailing = _split_trailing_newlines(segs[i]["text"])
             ctx_before = segs[trans_idx[pos - 1]]["text"] if pos > 0 else ""
             ctx_after = segs[trans_idx[pos + 1]]["text"] if pos < len(trans_idx) - 1 else ""
             sliced = slice_glossary(core, source_lang, lang, user_glossary, base_terms=glossary_terms)
-            lang_covered += len(sliced)
-            translated = await _translate_segment(
-                core,
-                source_name=source_name, target_name=target_name,
-                ctx_before=ctx_before, ctx_after=ctx_after,
-                sliced=sliced, system_prompt=system_prompt, chain=chain,
-            )
-            # re-attach the source segment's trailing newlines → stable block spacing
+            covered += len(sliced)
+            translated = await _translate_unit(
+                core, source_name=source_name, target_name=target_name,
+                ctx_before=ctx_before, ctx_after=ctx_after, sliced=sliced,
+                system_prompt=system_prompt, chain=chain)
             segs[i].setdefault("out", {})[lang] = translated.rstrip("\n") + trailing
-        if lang_covered == 0:
-            logger.info(f"No glossary coverage for target '{lang}' — one-pass translation (pass-2 skipped)")
-        logger.info(f"Translated {len(trans_idx)} segments → {lang}")
-    return ir
+        _log_coverage(covered, lang)
+        logger.info(f"Translated {len(trans_idx)} units → {lang}")
 
 
 def recompose(ir: dict[str, Any], target_lang: str, out_path: str | None = None) -> str:
@@ -403,11 +465,8 @@ def recompose(ir: dict[str, Any], target_lang: str, out_path: str | None = None)
         return _recompose_rtf(ir, target_lang, out_path)
     if fmt == "pptx":
         return _recompose_pptx(ir, target_lang, out_path)
-    # Tier 1 (txt / md): loss-less text join.
-    result = "".join(
-        s.get("out", {}).get(target_lang, s["text"]) if s["translate"] else s["text"]
-        for s in ir["segments"]
-    )
+    # Path A (txt / md): write the whole translated document.
+    result = ir.get("doc_out", {}).get(target_lang, ir["text"])
     out_path = out_path or _default_out(ir, target_lang)
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     Path(out_path).write_text(result, encoding="utf-8")
