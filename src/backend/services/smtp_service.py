@@ -20,9 +20,23 @@ _SETTINGS_PATH = SMTP_CONFIG
 _AUTHORIZED_EMAILS_PATH = CONFIG_DIR / "authorized_emails.json"  # legacy — migrated on first load
 _AUTHORIZED_CONTACTS_PATH = AUTHORIZED_CONTACTS
 
-# Contact schema — keys on every contact record
+# Contact schema — keys on every contact record. String fields + (Sprint 13,
+# §12.7) two boolean privilege flags: `schedule_override` (may pick
+# immediate/scheduled regardless of the global toggle) and `priority` (jobs jump
+# to the front of the queue). `_CONTACT_ALL_FIELDS` is the export/import column order.
 _CONTACT_FIELDS = ("email", "first_name", "last_name", "organization", "country", "sector", "registered_by")
+_CONTACT_BOOL_FIELDS = ("schedule_override", "priority")
+_CONTACT_ALL_FIELDS = _CONTACT_FIELDS + _CONTACT_BOOL_FIELDS
 _OVERRIDE_MODES = ("replace", "append")
+
+_TRUE_TOKENS = {"true", "1", "yes", "y", "x", "✓", "si", "sí", "verdadero"}
+
+
+def _as_bool(v: Any) -> bool:
+    """Coerce a stored/imported value (bool, or a string like 'true'/'x'/'sí') to bool."""
+    if isinstance(v, bool):
+        return v
+    return str(v).strip().lower() in _TRUE_TOKENS
 
 # In-memory auth code store: {session_token: {email, code, expires_at}}
 _pending_codes: dict[str, dict[str, Any]] = {}
@@ -70,19 +84,23 @@ def is_configured() -> bool:
 
 # --- Authorized Contacts (Sprint 18) ---
 
-def _empty_contact(email: str) -> dict[str, str]:
-    return {k: "" for k in _CONTACT_FIELDS} | {"email": email.lower().strip()}
+def _empty_contact(email: str) -> dict[str, Any]:
+    return ({k: "" for k in _CONTACT_FIELDS}
+            | {k: False for k in _CONTACT_BOOL_FIELDS}
+            | {"email": email.lower().strip()})
 
 
-def _normalise_contact(raw: dict[str, Any]) -> dict[str, str] | None:
+def _normalise_contact(raw: dict[str, Any]) -> dict[str, Any] | None:
     """Coerce a raw contact dict into the canonical schema. Returns None if invalid."""
     email = str(raw.get("email", "")).lower().strip()
     if not email or "@" not in email:
         return None
-    contact = {k: "" for k in _CONTACT_FIELDS}
+    contact: dict[str, Any] = {k: "" for k in _CONTACT_FIELDS}
     for field in _CONTACT_FIELDS:
         val = raw.get(field, "")
         contact[field] = str(val).strip() if val is not None else ""
+    for field in _CONTACT_BOOL_FIELDS:
+        contact[field] = _as_bool(raw.get(field, False))
     contact["email"] = email
     return contact
 
@@ -225,6 +243,29 @@ def _resolve_authorized_emails(frontend_id: str | None) -> set[str]:
 def is_email_authorized(email: str, frontend_id: str | None = None) -> bool:
     """Check if an email is authorised. Resolves per-frontend override if frontend_id given."""
     return email.lower().strip() in _resolve_authorized_emails(frontend_id)
+
+
+def resolve_contact(email: str, frontend_id: str | None = None) -> dict[str, Any] | None:
+    """Return the effective contact record for ``email`` under a frontend's
+    resolved list (Sprint 13, §12.7) — the per-frontend override wins the same
+    way `_resolve_authorized_emails` decides membership (replace = only the
+    override list; append = override entry wins over the global one). Returns
+    None when the email is not authorised for that frontend. Carries the privilege
+    flags (`schedule_override`, `priority`)."""
+    email = email.lower().strip()
+
+    def _find(lst: list[dict[str, Any]]) -> dict[str, Any] | None:
+        return next((c for c in lst if c.get("email") == email), None)
+
+    store = load_authorized_contacts()
+    override = (store.get("per_frontend") or {}).get(frontend_id) if frontend_id else None
+    if override:
+        fe = _find(override.get("contacts", []))
+        if override.get("mode", "replace") == "replace":
+            return fe  # replace: only the per-frontend list counts
+        if fe:
+            return fe  # append: the per-frontend entry wins when present
+    return _find(store.get("global", []))
 
 
 # --- Backward-compat wrappers (to be removed once all callers pass frontend_id) ---

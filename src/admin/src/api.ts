@@ -427,6 +427,8 @@ export interface Contact {
   country: string
   sector: string
   registered_by: string
+  schedule_override: boolean  // §12.7 — may choose immediate/scheduled regardless of the global toggle
+  priority: boolean           // §12.7 — jobs jump to the front of the queue
 }
 
 export interface FrontendContactsOverride {

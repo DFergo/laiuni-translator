@@ -26,6 +26,12 @@ const FIELDS: { key: keyof Contact; label: string }[] = [
   { key: 'registered_by', label: 'Registered by' },
 ]
 
+// §12.7 per-user privilege flags — rendered as checkbox columns.
+const BOOL_FIELDS: { key: 'schedule_override' | 'priority'; label: string; title: string }[] = [
+  { key: 'schedule_override', label: 'Sched. override', title: 'May choose immediate/scheduled regardless of the global toggle' },
+  { key: 'priority', label: 'Priority', title: 'Jobs jump to the front of the queue' },
+]
+
 const EMPTY_CONTACT: Contact = {
   email: '',
   first_name: '',
@@ -34,6 +40,8 @@ const EMPTY_CONTACT: Contact = {
   country: '',
   sector: '',
   registered_by: '',
+  schedule_override: false,
+  priority: false,
 }
 
 function sortKey(scope: Scope): string {
@@ -137,7 +145,7 @@ export default function RegisteredUsersTab() {
     localStorage.setItem(sortKey(scope), JSON.stringify({ col, dir: nextDir }))
   }
 
-  const updateRow = (idx: number, field: keyof Contact, value: string) => {
+  const updateRow = (idx: number, field: keyof Contact, value: string | boolean) => {
     // idx references the filtered/sorted list — resolve back to original rows array
     const target = filteredSortedRows[idx]
     setRows(prev => prev.map(r => (r === target ? { ...r, [field]: value } : r)))
@@ -379,13 +387,18 @@ export default function RegisteredUsersTab() {
                     {sortIndicator(key)}
                   </th>
                 ))}
+                {BOOL_FIELDS.map(({ key, label, title }) => (
+                  <th key={key} title={title} className="px-3 py-2 text-center font-medium text-gray-700 select-none">
+                    {label}
+                  </th>
+                ))}
                 <th className="px-3 py-2" />
               </tr>
             </thead>
             <tbody>
               {filteredSortedRows.length === 0 && (
                 <tr>
-                  <td colSpan={FIELDS.length + 1} className="px-3 py-4 text-center text-gray-500">
+                  <td colSpan={FIELDS.length + BOOL_FIELDS.length + 1} className="px-3 py-4 text-center text-gray-500">
                     No users. Add one or import from Excel/CSV.
                   </td>
                 </tr>
@@ -396,9 +409,19 @@ export default function RegisteredUsersTab() {
                     <td key={key} className="px-2 py-1">
                       <input
                         type="text"
-                        value={row[key] || ''}
+                        value={String(row[key] ?? '')}
                         onChange={e => updateRow(idx, key, e.target.value)}
                         className="w-full border border-transparent focus:border-gray-300 rounded px-2 py-1 text-sm"
+                      />
+                    </td>
+                  ))}
+                  {BOOL_FIELDS.map(({ key }) => (
+                    <td key={key} className="px-2 py-1 text-center">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(row[key])}
+                        onChange={e => updateRow(idx, key, e.target.checked)}
+                        className="h-4 w-4 accent-uni-blue"
                       />
                     </td>
                   ))}

@@ -20,6 +20,7 @@ from src.services.smtp_service import (
     load_authorized_contacts,
     save_authorized_contacts,
     _CONTACT_FIELDS,
+    _CONTACT_ALL_FIELDS,
     _OVERRIDE_MODES,
     _normalise_contact,
 )
@@ -39,6 +40,8 @@ class Contact(BaseModel):
     country: str = ""
     sector: str = ""
     registered_by: str = ""
+    schedule_override: bool = False  # §12.7 — may choose immediate/scheduled regardless of the global toggle
+    priority: bool = False           # §12.7 — jobs jump to the front of the queue
 
 
 class GlobalContactsRequest(BaseModel):
@@ -144,10 +147,10 @@ async def export_contacts(
     ws = wb.active
     assert ws is not None
 
-    def _write_sheet(sheet, contacts: list[dict[str, str]]):
-        sheet.append(list(_CONTACT_FIELDS))
+    def _write_sheet(sheet, contacts: list[dict[str, Any]]):
+        sheet.append(list(_CONTACT_ALL_FIELDS))
         for c in contacts:
-            sheet.append([c.get(f, "") for f in _CONTACT_FIELDS])
+            sheet.append([c.get(f, "") for f in _CONTACT_ALL_FIELDS])
 
     if scope == "all":
         ws.title = "global"
@@ -259,9 +262,12 @@ async def import_contacts(
             added += 1
         else:
             changed = False
-            for field in _CONTACT_FIELDS:
+            for field in _CONTACT_ALL_FIELDS:
                 if field == "email":
                     continue
+                # Only overwrite when the incoming value is asserted (non-empty /
+                # truthy) — a blank cell or an unchecked flag never clears an
+                # existing value on merge (that's the destructive global PUT's job).
                 if new_c.get(field) and new_c[field] != existing.get(field, ""):
                     existing[field] = new_c[field]
                     changed = True
