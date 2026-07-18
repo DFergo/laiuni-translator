@@ -1,17 +1,23 @@
-"""Document translation loop (Sprint 3, SPEC §3.4 / §4.2).
+"""Document translation loop (Sprint 3 + 7, SPEC §3.4 / §4.2).
 
 Three functions behind one per-format interface:
 
-    extract(path) -> IR            list of segments + skeleton (loss-less)
+    extract(path) -> IR            list of segments (+ format), granularity-preserving
     translate(IR, ...) -> IR       per-language, per-segment two-pass fill
     recompose(IR, lang, out) -> path   rebuild the document in the original format
 
-Tier 1 handles ``.txt`` / ``.md``. Segmentation is at paragraph/section
-granularity and **loss-less**: joining the raw segment texts reproduces the
-source byte-for-byte, so the skeleton (blank runs, fenced code) round-trips
-exactly and only the translatable text changes. Each segment is translated
-two-pass (draft with neighbour context → glossary review) through the
-connection registry — never a hardcoded endpoint (lesson #9).
+``translate`` is format-agnostic — it only touches each segment's ``text`` /
+``translate`` / ``out``. Only ``extract`` and ``recompose`` are per-format:
+
+  - **Tier 1** (`.txt` / `.md`): loss-less line segmentation (blank runs + fenced
+    code are skeleton), so recomposition is byte-stable.
+  - **Tier 2** (`.docx` / `.rtf`, Sprint 7): in-container libs (lesson #11) — no
+    host CLI. `.docx` via **python-docx** at paragraph granularity (paragraph
+    style kept; minor inline-format shifts accepted, §4.2); `.rtf` via **pandoc**
+    (rtf↔markdown), reusing the Tier-1 markdown segmenter.
+
+Each segment is translated two-pass (draft with neighbour context → glossary
+review) through the connection registry — never a hardcoded endpoint (lesson #9).
 """
 
 import logging
@@ -27,6 +33,8 @@ from src.services.llm_provider import llm, build_fallback_chain
 logger = logging.getLogger("backend.document_translator")
 
 _MD_SUFFIXES = {".md", ".markdown"}
+_DOCX_SUFFIXES = {".docx"}
+_RTF_SUFFIXES = {".rtf"}
 
 
 def _strip_think(text: str) -> str:
@@ -87,10 +95,93 @@ def _segment(text: str, fmt: str) -> list[dict[str, Any]]:
     return segments
 
 
+# ---------------------------------------------------------------------------
+# Tier 2 handlers (docx / rtf) — in-container libs only (lesson #11)
+# ---------------------------------------------------------------------------
+
+
+def _iter_doc_paragraphs(doc: Any) -> list[Any]:
+    """Every paragraph in a python-docx document, in a stable order (body first,
+    then table-cell paragraphs). extract + recompose walk this identically so
+    segment order lines up with paragraph order."""
+    paras = list(doc.paragraphs)
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                paras.extend(cell.paragraphs)
+    return paras
+
+
+def _extract_docx(p: Path) -> dict[str, Any]:
+    from docx import Document
+    doc = Document(str(p))
+    segments = [
+        {"text": para.text, "translate": bool(para.text.strip())}
+        for para in _iter_doc_paragraphs(doc)
+    ]
+    return {"format": "docx", "source_path": str(p), "segments": segments}
+
+
+def _set_paragraph_text(para: Any, text: str) -> None:
+    """Replace a paragraph's text, keeping its style (heading/list) and the first
+    run's character formatting. Minor inline-format shifts are accepted (§4.2)."""
+    if para.runs:
+        para.runs[0].text = text
+        for r in para.runs[1:]:
+            r.text = ""
+    else:
+        para.add_run(text)
+
+
+def _recompose_docx(ir: dict[str, Any], target_lang: str, out_path: str | None) -> str:
+    from docx import Document
+    doc = Document(ir["source_path"])  # fresh copy per language (no cross-lang mutation)
+    for seg, para in zip(ir["segments"], _iter_doc_paragraphs(doc)):
+        if seg["translate"]:
+            _set_paragraph_text(para, seg.get("out", {}).get(target_lang, seg["text"]))
+    out_path = out_path or _default_out(ir, target_lang)
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+    doc.save(out_path)
+    return out_path
+
+
+def _extract_rtf(p: Path) -> dict[str, Any]:
+    import pypandoc
+    md = pypandoc.convert_file(str(p), "markdown", format="rtf")
+    return {"format": "rtf", "source_path": str(p), "segments": _segment(md, "md")}
+
+
+def _recompose_rtf(ir: dict[str, Any], target_lang: str, out_path: str | None) -> str:
+    import pypandoc
+    md = "".join(
+        s.get("out", {}).get(target_lang, s["text"]) if s["translate"] else s["text"]
+        for s in ir["segments"]
+    )
+    out_path = out_path or _default_out(ir, target_lang)
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+    pypandoc.convert_text(md, "rtf", format="markdown", outputfile=out_path)
+    return out_path
+
+
+def _default_out(ir: dict[str, Any], target_lang: str) -> str:
+    p = Path(ir["source_path"])
+    return str(p.with_name(f"{p.stem}.{target_lang}{p.suffix}"))
+
+
+# ---------------------------------------------------------------------------
+# extract dispatch
+# ---------------------------------------------------------------------------
+
+
 def extract(path: str) -> dict[str, Any]:
-    """Read a Tier-1 document and build its IR (segments + skeleton)."""
+    """Build the IR for a document, dispatching on format (Tier 1 + Tier 2)."""
     p = Path(path)
-    fmt = "md" if p.suffix.lower() in _MD_SUFFIXES else "txt"
+    suf = p.suffix.lower()
+    if suf in _DOCX_SUFFIXES:
+        return _extract_docx(p)
+    if suf in _RTF_SUFFIXES:
+        return _extract_rtf(p)
+    fmt = "md" if suf in _MD_SUFFIXES else "txt"
     text = p.read_text(encoding="utf-8")
     return {"format": fmt, "source_path": str(p), "segments": _segment(text, fmt)}
 
@@ -220,19 +311,19 @@ async def translate(
 
 
 def recompose(ir: dict[str, Any], target_lang: str, out_path: str | None = None) -> str:
-    """Rebuild the document for one target language and write it to disk.
-
-    Default output path: ``<source-stem>.<lang><suffix>`` beside the source.
-    Non-translatable segments and any untranslated segment fall back to source.
-    """
-    parts = [
+    """Rebuild the document for one target language and write it, dispatching on
+    format. Non-translatable / untranslated segments fall back to source."""
+    fmt = ir["format"]
+    if fmt == "docx":
+        return _recompose_docx(ir, target_lang, out_path)
+    if fmt == "rtf":
+        return _recompose_rtf(ir, target_lang, out_path)
+    # Tier 1 (txt / md): loss-less text join.
+    result = "".join(
         s.get("out", {}).get(target_lang, s["text"]) if s["translate"] else s["text"]
         for s in ir["segments"]
-    ]
-    result = "".join(parts)
-    if out_path is None:
-        p = Path(ir["source_path"])
-        out_path = str(p.with_name(f"{p.stem}.{target_lang}{p.suffix}"))
+    )
+    out_path = out_path or _default_out(ir, target_lang)
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     Path(out_path).write_text(result, encoding="utf-8")
     return out_path

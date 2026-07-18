@@ -11,3 +11,5 @@ llama-index-embeddings-huggingface>=0.5
 sentence-transformers>=2.2
 aiosmtplib>=3.0
 openpyxl>=3.1
+python-docx>=1.1          # Tier-2 .docx read/write (Sprint 7)
+pypandoc>=1.13            # Tier-2 .rtf via the in-container pandoc binary (Sprint 7)

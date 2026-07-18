@@ -14,6 +14,11 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# In-container document tooling (Sprint 7, lesson #11): pandoc powers .rtf via
+# pypandoc; .docx uses python-docx (pip). Never a host CLI.
+RUN apt-get update && apt-get install -y --no-install-recommends pandoc \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install PyTorch CPU-only first (prevents CUDA/NVIDIA bloat from sentence-transformers)
 RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
 
