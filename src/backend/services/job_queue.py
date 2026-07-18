@@ -114,14 +114,18 @@ def estimate_seconds(chars: int, n_langs: int, throughput: float | None = None) 
     return int(chars / rate * max(1, n_langs))
 
 
-def compute_run_at(mode: str, now: datetime, hour: int, scheduling_enabled: bool) -> datetime:
-    """When a job should run.
+def compute_run_at(mode: str, now: datetime, hour: int, duration_hours: int, scheduling_enabled: bool) -> datetime:
+    """When a scheduled job may first run (§12.6) — the start of the **nearest**
+    window.
 
-    ``immediate`` → now. ``scheduled`` → the next local time at ``hour``:00 that
-    is ≥ now (today if now is before it, else tomorrow). Scheduling disabled →
-    now (SPEC §3.2, configurable/disableable per deploy).
+    ``immediate`` (or scheduling disabled) → now. ``scheduled``: if a window is
+    **open right now**, that is the nearest window → return now, so the job is
+    eligible immediately (it still queues behind everything already waiting).
+    Otherwise → the next local ``hour``:00 that is ≥ now (today, else tomorrow).
     """
     if mode == "immediate" or not scheduling_enabled:
+        return now
+    if _in_window(now, hour, duration_hours):
         return now
     candidate = now.replace(hour=hour, minute=0, second=0, microsecond=0)
     if candidate < now:
@@ -168,8 +172,8 @@ def enqueue(
     else ``scheduled``). ``priority`` (§12.7) lets the job jump the queue."""
     now = now or datetime.now()
     from src.api.v1.admin.settings import scheduling
-    start_hour = scheduling(frontend_id)["start_hour"]
-    run_at_dt = compute_run_at(mode, now, start_hour, config.scheduling_enabled)
+    sched = scheduling(frontend_id)
+    run_at_dt = compute_run_at(mode, now, sched["start_hour"], sched["duration_hours"], config.scheduling_enabled)
     if chars is None:
         from src.services.document_translator import count_translatable_chars
         chars = count_translatable_chars(path)
