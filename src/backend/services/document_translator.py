@@ -15,6 +15,9 @@ Three functions behind one per-format interface:
     host CLI. `.docx` via **python-docx** at paragraph granularity (paragraph
     style kept; minor inline-format shifts accepted, §4.2); `.rtf` via **pandoc**
     (rtf↔markdown), reusing the Tier-1 markdown segmenter.
+  - **Tier 3** (`.pptx`, Sprint 8, experimental/post-MVP — lesson #12): via
+    **python-pptx**, text runs per shape at paragraph granularity. Best-effort;
+    complex layouts may degrade. The UI warns before submission (§10).
 
 Each segment is translated two-pass (draft with neighbour context → glossary
 review) through the connection registry — never a hardcoded endpoint (lesson #9).
@@ -35,6 +38,7 @@ logger = logging.getLogger("backend.document_translator")
 _MD_SUFFIXES = {".md", ".markdown"}
 _DOCX_SUFFIXES = {".docx"}
 _RTF_SUFFIXES = {".rtf"}
+_PPTX_SUFFIXES = {".pptx"}
 
 
 def _strip_think(text: str) -> str:
@@ -163,6 +167,59 @@ def _recompose_rtf(ir: dict[str, Any], target_lang: str, out_path: str | None) -
     return out_path
 
 
+# --- Tier 3: .pptx (experimental, post-MVP — lesson #12, §4.2/§10) ---
+# Best-effort. Text runs per shape at paragraph granularity; recomposition of
+# complex layouts may degrade. The UI warns before submission.
+
+
+def _iter_pptx_paragraphs(prs: Any) -> list[Any]:
+    """Every text paragraph in a presentation, stable order: for each slide, each
+    shape's text frame, then table cells."""
+    paras: list[Any] = []
+    for slide in prs.slides:
+        for shape in slide.shapes:
+            if shape.has_text_frame:
+                paras.extend(shape.text_frame.paragraphs)
+            elif shape.has_table:
+                for row in shape.table.rows:
+                    for cell in row.cells:
+                        paras.extend(cell.text_frame.paragraphs)
+    return paras
+
+
+def _set_run_paragraph_text(para: Any, text: str) -> None:
+    """Replace a run-based paragraph's text (docx/pptx share this shape): keep the
+    first run's formatting, blank the rest; add a run if there were none."""
+    if para.runs:
+        para.runs[0].text = text
+        for r in para.runs[1:]:
+            r.text = ""
+    else:
+        para.add_run().text = text
+
+
+def _extract_pptx(p: Path) -> dict[str, Any]:
+    from pptx import Presentation
+    prs = Presentation(str(p))
+    segments = [
+        {"text": para.text, "translate": bool(para.text.strip())}
+        for para in _iter_pptx_paragraphs(prs)
+    ]
+    return {"format": "pptx", "source_path": str(p), "segments": segments}
+
+
+def _recompose_pptx(ir: dict[str, Any], target_lang: str, out_path: str | None) -> str:
+    from pptx import Presentation
+    prs = Presentation(ir["source_path"])  # fresh per language
+    for seg, para in zip(ir["segments"], _iter_pptx_paragraphs(prs)):
+        if seg["translate"]:
+            _set_run_paragraph_text(para, seg.get("out", {}).get(target_lang, seg["text"]))
+    out_path = out_path or _default_out(ir, target_lang)
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+    prs.save(out_path)
+    return out_path
+
+
 def _default_out(ir: dict[str, Any], target_lang: str) -> str:
     p = Path(ir["source_path"])
     return str(p.with_name(f"{p.stem}.{target_lang}{p.suffix}"))
@@ -181,6 +238,8 @@ def extract(path: str) -> dict[str, Any]:
         return _extract_docx(p)
     if suf in _RTF_SUFFIXES:
         return _extract_rtf(p)
+    if suf in _PPTX_SUFFIXES:
+        return _extract_pptx(p)
     fmt = "md" if suf in _MD_SUFFIXES else "txt"
     text = p.read_text(encoding="utf-8")
     return {"format": fmt, "source_path": str(p), "segments": _segment(text, fmt)}
@@ -318,6 +377,8 @@ def recompose(ir: dict[str, Any], target_lang: str, out_path: str | None = None)
         return _recompose_docx(ir, target_lang, out_path)
     if fmt == "rtf":
         return _recompose_rtf(ir, target_lang, out_path)
+    if fmt == "pptx":
+        return _recompose_pptx(ir, target_lang, out_path)
     # Tier 1 (txt / md): loss-less text join.
     result = "".join(
         s.get("out", {}).get(target_lang, s["text"]) if s["translate"] else s["text"]
