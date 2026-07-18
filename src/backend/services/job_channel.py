@@ -16,21 +16,48 @@ never inbound".
 """
 
 import io
+import json
 import logging
+import time
 import zipfile
 from pathlib import Path
 from typing import Any
 
 import httpx
 
-from src.core.paths import DOCUMENTS_DIR
+from src.core.paths import DATA_DIR, DOCUMENTS_DIR
 from src.services import job_queue as jq
-from src.services.user_tokens import verify_user_token
+from src.services.user_tokens import verify_user_token, verify_download_token
 
 logger = logging.getLogger("backend.jobchannel")
 
 # Statuses whose status the browser still cares about (pushed each poll).
 _LIVE_STATUSES = ("queued", "scheduled", "running", "done", "failed")
+
+# Single-use ledger for emailed download links (Sprint 12): {jti: exp}. Persisted
+# so a redeemed link stays dead across a backend restart; pruned by expiry.
+_REDEEMED_FILE = DATA_DIR / "redeemed_downloads.json"
+
+
+def _load_redeemed() -> dict[str, float]:
+    try:
+        return json.loads(_REDEEMED_FILE.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _is_redeemed(jti: str) -> bool:
+    return jti in _load_redeemed()
+
+
+def _mark_redeemed(jti: str, exp: float) -> None:
+    now = time.time()
+    ledger = {j: e for j, e in _load_redeemed().items() if e > now}  # prune expired
+    ledger[jti] = exp
+    _REDEEMED_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = _REDEEMED_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(ledger))
+    tmp.rename(_REDEEMED_FILE)
 
 
 def _authorize(token: str, fid: str) -> dict[str, Any] | None:
@@ -132,9 +159,55 @@ async def _handle_submit(client: httpx.AsyncClient, url: str, fid: str, req: dic
     logger.info(f"Job accepted ref={ref} job_id={job['id']} tier={tier} langs={len(target_langs)}")
 
 
+async def _push_artifact(client: httpx.AsyncClient, url: str, key: str, job: dict[str, Any]) -> bool:
+    """Zip the job's files and push them to the sidecar keyed by ``key`` (the
+    browser ref for a live download, or the signed token for an email link).
+    Returns True if an artifact was pushed."""
+    job_dir = DOCUMENTS_DIR / job["id"]
+    files = [p for p in job_dir.iterdir() if p.is_file()] if job_dir.exists() else []
+    if not files:
+        return False
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for p in files:
+            zf.write(p, arcname=p.name)
+    try:
+        await client.post(f"{url}/internal/jobs/{key}/artifact",
+                          content=buf.getvalue(),
+                          headers={"Content-Type": "application/zip"})
+        logger.info(f"Pushed download artifact ({len(files)} files)")
+        return True
+    except Exception as e:
+        logger.error(f"artifact push failed: {e}")
+        return False
+
+
+async def _handle_signed_download(client: httpx.AsyncClient, url: str, fid: str, req: dict[str, Any]):
+    """Fulfil an emailed download link: verify the signed token, enforce single
+    use, then push the zip keyed by the token (the sidecar waits on it). On any
+    failure nothing is pushed — the sidecar's /d/{token} 404s after its timeout."""
+    token = req.get("token", "")
+    payload = verify_download_token(token)  # checks signature + exp
+    if not payload or payload.get("fid", "") != fid:
+        return
+    jti = payload.get("jti", "")
+    if not jti or _is_redeemed(jti):
+        return
+    job = jq.get_by_ref(fid, payload.get("ref", ""))
+    if not job or job["owner_email"] != payload["sub"] or job["status"] != "done":
+        return
+    if await _push_artifact(client, url, token, job):
+        _mark_redeemed(jti, payload.get("exp", time.time()))
+
+
 async def _handle_download(client: httpx.AsyncClient, url: str, fid: str, req: dict[str, Any]):
     """Zip the job's files and push them to the sidecar — only for the owner,
-    only while ``done`` and not expired (SPEC §4.1/§8)."""
+    only while ``done`` and not expired (SPEC §4.1/§8). Signed email-link
+    downloads take the token-authenticated path instead."""
+    if req.get("signed"):
+        await _handle_signed_download(client, url, fid, req)
+        return
+
     ref = req.get("ref", "")
     payload = _authorize(req.get("token", ""), fid)
     job = jq.get_by_ref(fid, ref) if ref else None
@@ -145,23 +218,8 @@ async def _handle_download(client: httpx.AsyncClient, url: str, fid: str, req: d
         await _push_status(client, url, ref, {"ref": ref, "status": job["status"], "error": "not ready"})
         return
 
-    job_dir = DOCUMENTS_DIR / job["id"]
-    files = [p for p in job_dir.iterdir() if p.is_file()] if job_dir.exists() else []
-    if not files:
+    if not await _push_artifact(client, url, ref, job):
         await _push_status(client, url, ref, {"ref": ref, "status": "expired", "error": "no files"})
-        return
-
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for p in files:
-            zf.write(p, arcname=p.name)
-    try:
-        await client.post(f"{url}/internal/jobs/{ref}/artifact",
-                          content=buf.getvalue(),
-                          headers={"Content-Type": "application/zip"})
-        logger.info(f"Pushed download artifact ref={ref} ({len(files)} files)")
-    except Exception as e:
-        logger.error(f"artifact push failed for {ref}: {e}")
 
 
 async def push_statuses(client: httpx.AsyncClient, url: str, fid: str, requests: list[dict[str, Any]]):

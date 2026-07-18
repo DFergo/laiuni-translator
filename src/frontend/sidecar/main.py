@@ -680,6 +680,24 @@ async def job_download(ref: str, authorization: str = Header(default="")):
     )
 
 
+@app.get("/d/{token}")
+async def signed_download(token: str):
+    """Emailed result link: the signed token authenticates (no browser bearer).
+    The backend verifies it, enforces single use, and pushes the zip keyed by the
+    token; an invalid/expired/already-used link yields nothing → 404."""
+    async with _jobs_lock:
+        _job_downloads.append({"token": token, "signed": True})
+    data = await _wait_for(lambda: _artifacts.get(token), timeout=30.0)
+    if not data:
+        raise HTTPException(status_code=404, detail="This link is invalid, expired, or already used.")
+    async with _jobs_lock:
+        _artifacts.pop(token, None)  # one-shot
+    return Response(
+        content=data, media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="translations.zip"'},
+    )
+
+
 @app.get("/languages")
 async def languages():
     """The 17 target languages + format tiers (pushed by the backend)."""

@@ -300,10 +300,18 @@ async def process_job(job: dict[str, Any]) -> None:
         expires_at = time.time() + retention_hours() * 3600
         mark_done(job_id, expires_at)
 
+        # Result email carries a signed, single-use, retention-bounded download
+        # link on the public frontend domain — not attachments (SPEC §12).
         from src.services.smtp_service import send_translation_ready
-        await send_translation_ready(job["owner_email"], job_id, src, outputs)
-        logger.info(f"Job {job_id} done — {len(outputs)} translation(s), expires in "
-                    f"{config.retention_hours}h")
+        from src.services.user_tokens import mint_download_token
+        from src.services.frontend_registry import registry
+        fid = job.get("frontend_id", "")
+        fe = registry.get(fid) or {}
+        token = mint_download_token(job["owner_email"], fid, job["client_ref"], expires_at)
+        download_url = f"{fe.get('url', '').rstrip('/')}/d/{token}"
+        await send_translation_ready(job["owner_email"], download_url)
+        logger.info(f"Job {job_id} done — {len(outputs)} translation(s), emailed download link, "
+                    f"expires in {retention_hours()}h")
     except Exception as e:
         logger.error(f"Job {job_id} failed: {e}")
         mark_failed(job_id, str(e))

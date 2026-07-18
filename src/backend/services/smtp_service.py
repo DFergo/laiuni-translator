@@ -328,22 +328,30 @@ async def send_email_with_attachments(
 
 
 async def send_translation_ready(
-    to: str, job_id: str, original: Path, translations: list[Path], language: str = "en"
+    to: str, download_url: str, language: str = "en"
 ) -> bool:
-    """Email the user their finished translation: original + all translated files."""
+    """Email the user a **download link** to their finished translation (Sprint 12,
+    SPEC §12). The link is signed, single-use, and expires with retention — no
+    attachments (better deliverability, no SMTP size limits). Never raises."""
     subjects = {
         "en": "Your translation is ready",
         "es": "Tu traducción está lista",
         "fr": "Votre traduction est prête",
     }
     bodies = {
-        "en": "Your document has been translated. The original and all translations are attached.",
-        "es": "Tu documento ha sido traducido. Se adjuntan el original y todas las traducciones.",
-        "fr": "Votre document a été traduit. L'original et toutes les traductions sont en pièces jointes.",
+        "en": ("Your document has been translated.\n\n"
+               f"Download the original and all translations (one-time link):\n{download_url}\n\n"
+               "The link expires once the files are removed from the server."),
+        "es": ("Tu documento ha sido traducido.\n\n"
+               f"Descarga el original y todas las traducciones (enlace de un solo uso):\n{download_url}\n\n"
+               "El enlace caduca cuando los archivos se eliminan del servidor."),
+        "fr": ("Votre document a été traduit.\n\n"
+               f"Téléchargez l'original et toutes les traductions (lien à usage unique) :\n{download_url}\n\n"
+               "Le lien expire dès que les fichiers sont supprimés du serveur."),
     }
     subject = subjects.get(language, subjects["en"])
     body = bodies.get(language, bodies["en"])
-    return await send_email_with_attachments(to, subject, body, [original, *translations])
+    return await send_email(to, subject, body)
 
 
 async def test_connection() -> dict[str, str]:
