@@ -1,0 +1,49 @@
+## Stage 1: Build React app
+FROM node:20-slim AS builder
+
+WORKDIR /app/frontend
+
+COPY src/frontend/package.json src/frontend/package-lock.json* ./
+RUN npm install
+
+COPY src/frontend/ .
+RUN npm run build
+
+## Stage 2: Runtime — Nginx + FastAPI sidecar
+FROM python:3.11-slim
+
+# Install Nginx and supervisor
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends nginx supervisor && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy built React app
+COPY --from=builder /app/frontend/dist /app/frontend/dist
+
+# Copy Nginx config
+COPY config/nginx/frontend.conf /etc/nginx/sites-available/default
+RUN rm -f /etc/nginx/sites-enabled/default && \
+    ln -s /etc/nginx/sites-available/default /etc/nginx/sites-enabled/default
+
+# Install sidecar dependencies
+COPY src/frontend/sidecar/requirements.txt /app/sidecar/requirements.txt
+RUN pip install --no-cache-dir -r /app/sidecar/requirements.txt
+
+# Copy sidecar code
+COPY src/frontend/sidecar/ /app/sidecar/
+
+# Copy the generic deployment config (behaviour comes from the backend-pushed
+# per-frontend config, not this file)
+COPY config/deployment_frontend.json /app/config/deployment_frontend.json
+
+# Create data directory for persistent storage
+RUN mkdir -p /app/data
+
+# Supervisor config to run both Nginx and sidecar
+COPY config/supervisord.conf /etc/supervisor/conf.d/hrdd.conf
+
+EXPOSE 80
+
+CMD ["supervisord", "-n", "-c", "/etc/supervisor/conf.d/hrdd.conf"]

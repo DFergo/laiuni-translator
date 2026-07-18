@@ -1,0 +1,36 @@
+## Stage 1: Build admin React app
+FROM node:20-slim AS admin-builder
+
+WORKDIR /app/admin
+
+COPY src/admin/package.json src/admin/package-lock.json* ./
+RUN npm install
+
+COPY src/admin/ .
+RUN npm run build
+
+## Stage 2: Python backend
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install PyTorch CPU-only first (prevents CUDA/NVIDIA bloat from sentence-transformers)
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+
+# Install remaining dependencies
+COPY src/backend/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY src/backend/ ./src/
+COPY config/deployment_backend.json ./config/deployment_backend.json
+
+# Copy built admin app
+COPY --from=admin-builder /app/admin/dist /app/admin/dist
+
+# Create data directory for persistent storage
+RUN mkdir -p /app/data
+
+EXPOSE 8000
+
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]

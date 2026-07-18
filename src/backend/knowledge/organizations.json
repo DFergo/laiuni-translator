@@ -1,0 +1,88 @@
+{
+  "organizations": [
+    {
+      "name": "UNI Global Union",
+      "type": "GUF",
+      "country": "global",
+      "description": "Global Union Federation representing over 20 million workers in the skills and services sectors. Parent organization of this tool."
+    },
+    {
+      "name": "UNI Europa",
+      "type": "ETUF",
+      "country": "regional",
+      "description": "European regional organization of UNI Global Union."
+    },
+    {
+      "name": "UNI Graphical & Packaging",
+      "type": "Other",
+      "country": "global",
+      "description": "UNI Global Union sector covering graphical, packaging, printing, paper, and forestry industries."
+    },
+    {
+      "name": "IndustriALL Global Union",
+      "type": "GUF",
+      "country": "global",
+      "description": "Global Union Federation representing 50 million workers in mining, energy, and manufacturing sectors."
+    },
+    {
+      "name": "International Transport Workers' Federation",
+      "type": "GUF",
+      "country": "global",
+      "description": "Global Union Federation representing transport workers worldwide."
+    },
+    {
+      "name": "International Union of Food, Agricultural, Hotel, Restaurant, Catering, Tobacco and Allied Workers' Associations",
+      "type": "GUF",
+      "country": "global",
+      "description": "Global Union Federation representing workers in food, agriculture, and hospitality."
+    },
+    {
+      "name": "Building and Wood Workers' International",
+      "type": "GUF",
+      "country": "global",
+      "description": "Global Union Federation for building and woodworkers."
+    },
+    {
+      "name": "Public Services International",
+      "type": "GUF",
+      "country": "global",
+      "description": "Global Union Federation representing public sector workers."
+    },
+    {
+      "name": "Education International",
+      "type": "GUF",
+      "country": "global",
+      "description": "Global Union Federation representing education workers and their unions."
+    },
+    {
+      "name": "International Trade Union Confederation",
+      "type": "Other",
+      "country": "global",
+      "description": "The world's largest trade union confederation, representing 200 million workers in 163 countries."
+    },
+    {
+      "name": "European Trade Union Confederation",
+      "type": "Other",
+      "country": "regional",
+      "description": "Voice of European workers, representing 45 million members from 93 trade union organisations."
+    },
+    {
+      "name": "International Labour Organization",
+      "type": "Other",
+      "country": "global",
+      "description": "United Nations agency for labour standards, social protection, and work opportunities."
+    },
+    {
+      "name": "Forest Stewardship Council",
+      "type": "Other",
+      "country": "global",
+      "description": "International certification system for responsible forestry. Includes Core Labour Requirements based on ILO fundamental conventions."
+    },
+    {
+      "name": "Organisation for Economic Co-operation and Development",
+      "type": "Other",
+      "country": "global",
+      "description": "Issues Guidelines for Multinational Enterprises. National Contact Points handle complaints about MNE conduct."
+    }
+  ]
+}

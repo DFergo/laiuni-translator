@@ -1,0 +1,18 @@
+services:
+  hrdd-frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    # FRONTEND_PORT is REQUIRED — deploy fails clearly if it is not set.
+    # Deploy one instance per campaign, each with its own port and volume.
+    ports:
+      - "${FRONTEND_PORT:?FRONTEND_PORT is required — set the host port for this frontend}:80"
+    volumes:
+      # Sidecar state (pushed branding + config). Named volume by default;
+      # bind-mount alternative: - /Users/you/hrdd-frontend-a:/app/data
+      - hrdd-frontend-data:/app/data
+    environment:
+      - DEPLOYMENT_JSON_PATH=/app/config/deployment_frontend.json
+
+volumes:
+  hrdd-frontend-data:

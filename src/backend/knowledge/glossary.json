@@ -1,0 +1,184 @@
+{
+  "terms": [
+    {
+      "term": "Freedom of Association",
+      "definition": "The right of workers to form and join organizations of their choosing without prior authorization.",
+      "translations": {
+        "es": "Libertad sindical",
+        "fr": "Liberté syndicale",
+        "de": "Vereinigungsfreiheit",
+        "pt": "Liberdade sindical",
+        "ar": "حرية تكوين الجمعيات",
+        "tr": "Örgütlenme özgürlüğü"
+      }
+    },
+    {
+      "term": "Collective Bargaining",
+      "definition": "The process of negotiation between employers and workers' representatives to determine conditions of employment.",
+      "translations": {
+        "es": "Negociación colectiva",
+        "fr": "Négociation collective",
+        "de": "Tarifverhandlung",
+        "pt": "Negociação coletiva",
+        "ar": "المفاوضة الجماعية",
+        "tr": "Toplu pazarlık"
+      }
+    },
+    {
+      "term": "Forced Labour",
+      "definition": "All work or service exacted from any person under the menace of any penalty and for which the person has not offered themselves voluntarily.",
+      "translations": {
+        "es": "Trabajo forzoso",
+        "fr": "Travail forcé",
+        "de": "Zwangsarbeit",
+        "pt": "Trabalho forçado",
+        "ar": "العمل القسري",
+        "tr": "Zorla çalıştırma"
+      }
+    },
+    {
+      "term": "Child Labour",
+      "definition": "Work that deprives children of their childhood, potential, and dignity, and that is harmful to their physical and mental development.",
+      "translations": {
+        "es": "Trabajo infantil",
+        "fr": "Travail des enfants",
+        "de": "Kinderarbeit",
+        "pt": "Trabalho infantil",
+        "ar": "عمالة الأطفال",
+        "tr": "Çocuk işçiliği"
+      }
+    },
+    {
+      "term": "Discrimination",
+      "definition": "Any distinction, exclusion, or preference that has the effect of nullifying or impairing equality of opportunity or treatment in employment or occupation.",
+      "translations": {
+        "es": "Discriminación",
+        "fr": "Discrimination",
+        "de": "Diskriminierung",
+        "pt": "Discriminação",
+        "ar": "التمييز",
+        "tr": "Ayrımcılık"
+      }
+    },
+    {
+      "term": "Human Rights Due Diligence",
+      "definition": "The process through which enterprises identify, prevent, mitigate, and account for how they address their adverse human rights impacts.",
+      "translations": {
+        "es": "Debida diligencia en derechos humanos",
+        "fr": "Devoir de vigilance en matière de droits humains",
+        "de": "Menschenrechtliche Sorgfaltspflicht",
+        "pt": "Devida diligência em direitos humanos",
+        "ar": "العناية الواجبة بحقوق الإنسان",
+        "tr": "İnsan hakları özen yükümlülüğü"
+      }
+    },
+    {
+      "term": "Anti-Union Discrimination",
+      "definition": "Any act prejudicing a worker because of union membership or participation in union activities, including dismissal, demotion, transfer, or denial of benefits.",
+      "translations": {
+        "es": "Discriminación antisindical",
+        "fr": "Discrimination antisyndicale",
+        "de": "Gewerkschaftsfeindliche Diskriminierung",
+        "pt": "Discriminação antissindical",
+        "ar": "التمييز ضد النقابات",
+        "tr": "Sendika karşıtı ayrımcılık"
+      }
+    },
+    {
+      "term": "Occupational Safety and Health",
+      "definition": "The discipline dealing with the prevention of work-related injuries and diseases, and the protection and promotion of workers' health.",
+      "translations": {
+        "es": "Seguridad y salud en el trabajo",
+        "fr": "Sécurité et santé au travail",
+        "de": "Arbeitssicherheit und Gesundheitsschutz",
+        "pt": "Segurança e saúde no trabalho",
+        "ar": "السلامة والصحة المهنية",
+        "tr": "İş sağlığı ve güvenliği"
+      }
+    },
+    {
+      "term": "Global Framework Agreement",
+      "definition": "An agreement negotiated between a multinational enterprise and a Global Union Federation to establish a framework for labor relations across the company's global operations.",
+      "translations": {
+        "es": "Acuerdo Marco Global",
+        "fr": "Accord-cadre mondial",
+        "de": "Globales Rahmenabkommen",
+        "pt": "Acordo Quadro Global",
+        "ar": "اتفاقية إطارية عالمية",
+        "tr": "Küresel Çerçeve Anlaşması"
+      }
+    },
+    {
+      "term": "National Contact Point",
+      "definition": "Government-established body responsible for promoting the OECD Guidelines and handling complaints (specific instances) about multinational enterprises.",
+      "translations": {
+        "es": "Punto Nacional de Contacto",
+        "fr": "Point de contact national",
+        "de": "Nationale Kontaktstelle",
+        "pt": "Ponto de Contato Nacional",
+        "ar": "نقطة الاتصال الوطنية",
+        "tr": "Ulusal Temas Noktası"
+      }
+    },
+    {
+      "term": "Supply Chain Due Diligence",
+      "definition": "The process of identifying and addressing human rights and environmental risks throughout a company's supply chain, including suppliers and subcontractors.",
+      "translations": {
+        "es": "Debida diligencia en la cadena de suministro",
+        "fr": "Devoir de vigilance dans la chaîne d'approvisionnement",
+        "de": "Lieferketten-Sorgfaltspflicht",
+        "pt": "Devida diligência na cadeia de fornecimento",
+        "ar": "العناية الواجبة في سلسلة التوريد",
+        "tr": "Tedarik zinciri özen yükümlülüğü"
+      }
+    },
+    {
+      "term": "Workers' Representatives",
+      "definition": "Persons recognized as such under national law or practice, whether trade union representatives or elected representatives of the workers.",
+      "translations": {
+        "es": "Representantes de los trabajadores",
+        "fr": "Représentants des travailleurs",
+        "de": "Arbeitnehmervertreter",
+        "pt": "Representantes dos trabalhadores",
+        "ar": "ممثلو العمال",
+        "tr": "İşçi temsilcileri"
+      }
+    },
+    {
+      "term": "Precarious Work",
+      "definition": "Employment that is uncertain, unpredictable, and risky from the point of view of the worker, including temporary contracts, subcontracting, and informal employment.",
+      "translations": {
+        "es": "Trabajo precario",
+        "fr": "Travail précaire",
+        "de": "Prekäre Arbeit",
+        "pt": "Trabalho precário",
+        "ar": "العمل الهش",
+        "tr": "Güvencesiz çalışma"
+      }
+    },
+    {
+      "term": "Grievance Mechanism",
+      "definition": "A formal process through which individuals or groups can raise concerns about the human rights impacts of a business and seek remedy.",
+      "translations": {
+        "es": "Mecanismo de reclamación",
+        "fr": "Mécanisme de réclamation",
+        "de": "Beschwerdemechanismus",
+        "pt": "Mecanismo de reclamação",
+        "ar": "آلية التظلم",
+        "tr": "Şikayet mekanizması"
+      }
+    },
+    {
+      "term": "FSC Certification",
+      "definition": "A voluntary certification scheme for forest products that includes core labour requirements based on ILO fundamental conventions.",
+      "translations": {
+        "es": "Certificación FSC",
+        "fr": "Certification FSC",
+        "de": "FSC-Zertifizierung",
+        "pt": "Certificação FSC",
+        "ar": "شهادة FSC",
+        "tr": "FSC Sertifikası"
+      }
+    }
+  ]
+}
