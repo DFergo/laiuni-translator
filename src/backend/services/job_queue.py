@@ -334,22 +334,31 @@ async def process_job(job: dict[str, Any]) -> None:
         from src.api.v1.admin.settings import retention_hours
         expires_at = time.time() + retention_hours() * 3600
         mark_done(job_id, expires_at)
+        logger.info(f"Job {job_id} translated — {len(outputs)} language(s), expires in {retention_hours()}h")
+    except Exception as e:
+        logger.error(f"Job {job_id} failed: {e}")
+        mark_failed(job_id, str(e))
+        return
 
-        # Result email carries a signed, single-use, retention-bounded download
-        # link on the public frontend domain — not attachments (SPEC §12).
+    # Notify separately: the translation already succeeded and is downloadable —
+    # a mail/link failure must NOT flip the job to `failed`, but must be loud.
+    try:
         from src.services.smtp_service import send_translation_ready
         from src.services.user_tokens import mint_download_token
         from src.services.frontend_registry import registry
         fid = job.get("frontend_id", "")
         fe = registry.get(fid) or {}
+        base = (fe.get("url") or "").rstrip("/")
         token = mint_download_token(job["owner_email"], fid, job["client_ref"], expires_at)
-        download_url = f"{fe.get('url', '').rstrip('/')}/d/{token}"
-        await send_translation_ready(job["owner_email"], download_url)
-        logger.info(f"Job {job_id} done — {len(outputs)} translation(s), emailed download link, "
-                    f"expires in {retention_hours()}h")
+        download_url = f"{base}/d/{token}"
+        sent = await send_translation_ready(job["owner_email"], download_url)
+        if sent:
+            logger.info(f"Job {job_id}: result email sent to {job['owner_email']} (link {base}/d/…)")
+        else:
+            logger.error(f"Job {job_id}: result email NOT sent (SMTP unconfigured or send failed) — "
+                         f"result is still downloadable in-app")
     except Exception as e:
-        logger.error(f"Job {job_id} failed: {e}")
-        mark_failed(job_id, str(e))
+        logger.error(f"Job {job_id}: notify step failed (translation OK, result downloadable): {e}")
 
 
 def sweep_expired(now: float | None = None) -> int:
