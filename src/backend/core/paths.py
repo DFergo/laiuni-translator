@@ -34,6 +34,10 @@ FRONTENDS = CONFIG_DIR / "frontends.json"
 KNOWLEDGE_DIR = CONFIG_DIR / "knowledge"
 PROMPTS_DIR = CONFIG_DIR / "prompts"
 
+# Runtime state (root — not config; Sprint 4 job queue)
+JOBS_DB = DATA_DIR / "jobs.db"            # SQLite job queue (queue only — lesson #14)
+DOCUMENTS_DIR = DATA_DIR / "documents"    # per-job uploads + translations (48h retention)
+
 # Secrets (root — not admin-editable "navigable config")
 ADMIN_HASH = DATA_DIR / ".admin_hash"
 JWT_SECRET = DATA_DIR / ".jwt_secret"

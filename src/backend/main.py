@@ -24,6 +24,7 @@ from src.api.v1.admin.knowledge import router as knowledge_router
 from src.api.v1.admin.knowledge import ensure_defaults as ensure_knowledge_defaults
 from src.api.v1.admin.portability import router as portability_router
 from src.core.config import config
+from src.services.job_queue import init_db, scheduler_loop
 from src.services.polling import polling_loop
 from src.services.prompt_assembler import ensure_defaults
 
@@ -36,18 +37,23 @@ async def lifespan(app: FastAPI):
     # Install default prompt files and knowledge base if missing
     ensure_defaults()
     ensure_knowledge_defaults()
+    # Initialise the SQLite job queue (Sprint 4)
+    init_db()
     # Non-blocking SMTP health check (logs warning if unreachable)
     from src.services.smtp_service import check_smtp_health
     asyncio.create_task(check_smtp_health())
     # Start the pull-inverse polling loop (SPEC §2, §8 — the security boundary)
     poll_task = asyncio.create_task(polling_loop(config.poll_interval_seconds))
-    logger.info("Backend started, pull-inverse polling loop running")
+    # Start the job scheduler loop (Sprint 4 — runs due jobs + retention sweep)
+    sched_task = asyncio.create_task(scheduler_loop())
+    logger.info("Backend started, pull-inverse polling + job scheduler loops running")
     yield
-    poll_task.cancel()
-    try:
-        await poll_task
-    except asyncio.CancelledError:
-        pass
+    for task in (poll_task, sched_task):
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(title="LAIUNI Translator Backend", version="1.0.0", lifespan=lifespan)

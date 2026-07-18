@@ -1,4 +1,8 @@
 {
   "role": "backend",
-  "poll_interval_seconds": 2
+  "poll_interval_seconds": 2,
+  "translation_throughput_chars_per_s": 10.0,
+  "schedule_default_hour": 23,
+  "scheduling_enabled": true,
+  "retention_hours": 48
 }

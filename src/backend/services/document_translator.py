@@ -95,6 +95,11 @@ def extract(path: str) -> dict[str, Any]:
     return {"format": fmt, "source_path": str(p), "segments": _segment(text, fmt)}
 
 
+def count_translatable_chars(path: str) -> int:
+    """Total characters in translatable segments — drives the duration estimate."""
+    return sum(len(s["text"]) for s in extract(path)["segments"] if s["translate"])
+
+
 # ---------------------------------------------------------------------------
 # Per-segment two-pass (draft → glossary review)
 # ---------------------------------------------------------------------------

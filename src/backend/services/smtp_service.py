@@ -281,6 +281,71 @@ async def send_email(to: str, subject: str, body: str) -> bool:
         return False
 
 
+async def send_email_with_attachments(
+    to: str, subject: str, body: str, attachments: list[Path]
+) -> bool:
+    """Send an email with file attachments. Returns True on success. Never raises.
+
+    Used for the translation-result email (Sprint 4): the original + all
+    translated files (SPEC §3.3). Falls back to a plain send if there are no
+    attachments.
+    """
+    cfg = _load_config()
+    if not cfg.get("host") or not cfg.get("from_address"):
+        logger.debug("SMTP not configured, skipping email")
+        return False
+
+    msg = EmailMessage()
+    msg["From"] = cfg["from_address"]
+    msg["To"] = to
+    msg["Subject"] = subject
+    msg.set_content(body)
+
+    for path in attachments:
+        try:
+            data = Path(path).read_bytes()
+        except OSError as e:
+            logger.error(f"Attachment unreadable, skipping {path}: {e}")
+            continue
+        msg.add_attachment(
+            data, maintype="application", subtype="octet-stream", filename=Path(path).name
+        )
+
+    try:
+        await aiosmtplib.send(
+            msg,
+            hostname=cfg["host"],
+            port=cfg["port"],
+            username=cfg.get("username") or None,
+            password=cfg.get("password") or None,
+            start_tls=cfg.get("use_tls", True),
+        )
+        logger.info(f"Result email sent to {to}: {subject} ({len(attachments)} attachment(s))")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to send result email to {to}: {e}")
+        return False
+
+
+async def send_translation_ready(
+    to: str, job_id: str, original: Path, translations: list[Path], language: str = "en"
+) -> bool:
+    """Email the user their finished translation: original + all translated files."""
+    subjects = {
+        "en": "Your translation is ready",
+        "es": "Tu traducción está lista",
+        "fr": "Votre traduction est prête",
+    }
+    bodies = {
+        "en": "Your document has been translated. The original and all translations are attached.",
+        "es": "Tu documento ha sido traducido. Se adjuntan el original y todas las traducciones.",
+        "fr": "Votre document a été traduit. L'original et toutes les traductions sont en pièces jointes.",
+    }
+    subject = subjects.get(language, subjects["en"])
+    body = bodies.get(language, bodies["en"])
+    return await send_email_with_attachments(to, subject, body, [original, *translations])
+
+
 async def test_connection() -> dict[str, str]:
     """Test SMTP connection. Returns status dict."""
     cfg = _load_config()
