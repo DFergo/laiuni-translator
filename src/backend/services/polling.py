@@ -31,6 +31,7 @@ logger = logging.getLogger("backend.polling")
 
 _branding_pushed: set[str] = set()  # Track which frontends have branding pushed
 _languages_pushed: set[str] = set()  # Track which frontends have the languages catalogue
+_config_pushed: set[str] = set()     # Track which frontends have their config pushed
 
 
 def invalidate_branding_cache(frontend_id: str = ""):
@@ -39,6 +40,15 @@ def invalidate_branding_cache(frontend_id: str = ""):
         _branding_pushed.discard(frontend_id)
     else:
         _branding_pushed.clear()
+
+
+def invalidate_config_cache(frontend_id: str = ""):
+    """Clear the config push cache so it gets re-pushed on next poll (after an
+    admin change or a sidecar restart)."""
+    if frontend_id:
+        _config_pushed.discard(frontend_id)
+    else:
+        _config_pushed.clear()
 
 
 async def _push_languages_if_needed(client: httpx.AsyncClient, url: str, fid: str):
@@ -52,6 +62,30 @@ async def _push_languages_if_needed(client: httpx.AsyncClient, url: str, fid: st
         logger.info(f"Languages catalogue pushed to {fid}")
     except Exception as e:
         logger.debug(f"Languages push to {fid} failed: {e}")
+
+
+async def _push_config_if_needed(client: httpx.AsyncClient, url: str, fid: str):
+    """Push this frontend's config (app language + auth mode) to the sidecar once
+    per session. The backend is the source of truth: without this the sidecar
+    keeps whatever config it last persisted, which desyncs after a redeploy or a
+    sidecar restart (e.g. it thinks it's `email-only` while the backend defaults
+    to `token`) — the cause of the email-only auth hang."""
+    if fid in _config_pushed:
+        return
+    from src.services.frontend_registry import load_config
+    config = load_config(fid)
+    if not config.get("app_language"):
+        try:
+            from src.api.v1.admin.settings import get_setting
+            config = {**config, "app_language": get_setting("app_language", "en")}
+        except Exception:
+            pass
+    try:
+        await client.post(f"{url}/internal/frontend-config", json=config)
+        _config_pushed.add(fid)
+        logger.info(f"Frontend config pushed to {fid} (auth_mode={config.get('auth_mode')})")
+    except Exception as e:
+        logger.debug(f"Config push to {fid} failed: {e}")
 
 
 async def _push_branding_if_needed(client: httpx.AsyncClient, url: str, fid: str):
@@ -88,8 +122,10 @@ async def poll_frontends():
                 data = resp.json()
                 registry.set_status(fid, "online")
 
-                # Push branding config if exists (survives sidecar restarts)
+                # Push branding + per-frontend config (backend is source of truth;
+                # keeps the sidecar's auth_mode/app_language in sync after restarts)
                 await _push_branding_if_needed(client, url, fid)
+                await _push_config_if_needed(client, url, fid)
 
                 # Handle auth requests (pull-inverse: sidecar queues, backend resolves)
                 auth_requests = data.get("auth_requests", [])

@@ -87,7 +87,9 @@ async def update_frontend_config(frontend_id: str, config: dict, _: dict = Depen
     if not registry.get(frontend_id):
         raise HTTPException(status_code=404, detail="Frontend not found")
     from src.services.frontend_registry import save_config
+    from src.services.polling import invalidate_config_cache
     save_config(frontend_id, config)
+    invalidate_config_cache(frontend_id)  # ensure the poll re-pushes even if the direct push below fails
     await _push_config_to_sidecar(frontend_id)
     return {"frontend_id": frontend_id, "config": config}
 

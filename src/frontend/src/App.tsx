@@ -33,9 +33,25 @@ export default function App() {
 
   const t = translator(lang)
 
-  // Load languages + config (app language + branding) once.
+  // Load languages + config (app language + branding). The backend pushes the
+  // languages/format catalogue to the sidecar on its poll cycle, which may not
+  // have happened yet on a cold start — so retry until it's populated, otherwise
+  // the portal shows no languages and rejects every file as "unsupported".
   useEffect(() => {
-    getLanguages().then((r) => { setLanguages(r.languages); setFormats(r.formats) }).catch(() => {})
+    let alive = true
+    let tries = 0
+    const loadLanguages = async () => {
+      try {
+        const r = await getLanguages()
+        if (!alive) return
+        if (r.languages.length > 0) {
+          setLanguages(r.languages); setFormats(r.formats)
+          return
+        }
+      } catch { /* transient — retry */ }
+      if (alive && tries++ < 40) setTimeout(loadLanguages, 1500)  // up to ~60s
+    }
+    loadLanguages()
     getConfig().then((c) => {
       setBranding(c.branding); applyBranding(c.branding)
       setLang(c.app_language as Lang)
@@ -43,6 +59,7 @@ export default function App() {
       document.documentElement.lang = c.app_language
       document.documentElement.dir = LANGS_RTL.includes(c.app_language as Lang) ? 'rtl' : 'ltr'
     }).catch(() => {})
+    return () => { alive = false }
   }, [])
 
   // Poll job status while on the status screen.
