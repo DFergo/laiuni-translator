@@ -173,27 +173,19 @@ async def get_branding_translation(lang_code: str):
 
 @app.get("/internal/config")
 async def get_config():
-    if _frontend_config.get("configured"):
-        cfg = {
-            "role": "frontend",
-            "configured": True,
-            "profiles": _frontend_config.get("profiles", []),
-            "auth": _frontend_config.get("auth", {}),
-            "auth_required": _frontend_config.get("auth_required", False),
-            "languages": _frontend_config.get("languages", []),
-            "modes": _frontend_config.get("modes", {}),
-            "display_names": _frontend_config.get("display_names", {"profiles": {}, "modes": {}}),
-            "session_resume_window_hours": _frontend_config.get("session_resume_window_hours", 48),
-            "disclaimer_enabled": _frontend_config.get("disclaimer_enabled", True),
-            "data_protection_email": _frontend_config.get("data_protection_email", ""),
-        }
-    else:
-        cfg = {"role": "frontend", "configured": False}
+    # Sprint 12: LAIUNI portal config — app language + auth mode + branding.
+    cfg = {
+        "role": "frontend",
+        "configured": bool(_frontend_config.get("configured")),
+        "app_language": _frontend_config.get("app_language") or "en",
+        "auth_mode": _frontend_config.get("auth_mode", "token"),
+    }
     if _branding:
         cfg["branding"] = {
             "app_title": _branding.get("app_title", ""),
             "logo_url": _branding.get("logo_url", ""),
             "custom": _branding.get("custom", False),
+            "colors": _branding.get("colors"),
         }
     return cfg
 

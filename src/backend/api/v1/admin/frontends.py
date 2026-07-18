@@ -96,23 +96,19 @@ async def update_frontend_config(frontend_id: str, config: dict, _: dict = Depen
 async def _push_config_to_sidecar(frontend_id: str):
     """Push the per-frontend config to the sidecar (mirror of branding push).
 
-    Resolves the effective data_protection_email (Sprint 22): if the frontend
-    leaves it blank, fall back to the SMTP `from_address`.
+    Resolves the effective **app language** (Sprint 12): per-frontend override →
+    the global default from admin Settings → 'en'. The portal renders its
+    hardcoded i18n in this language.
     """
     from src.services.frontend_registry import load_config
     fe = registry.get(frontend_id)
     if not fe or not fe.get("enabled"):
         return
     config = load_config(frontend_id)
-    # Effective data-protection email: per-frontend override → SMTP dedicated
-    # field → SMTP sender address. (Multi-sector deploys: a sector may own its
-    # own data-protection contact.)
-    if not config.get("data_protection_email"):
+    if not config.get("app_language"):
         try:
-            from src.services.smtp_service import _load_config as _load_smtp
-            smtp = _load_smtp()
-            resolved = smtp.get("data_protection_email") or smtp.get("from_address", "")
-            config = {**config, "data_protection_email": resolved}
+            from src.api.v1.admin.settings import get_setting
+            config = {**config, "app_language": get_setting("app_language", "en")}
         except Exception:
             pass
     try:

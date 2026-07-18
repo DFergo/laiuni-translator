@@ -1,4 +1,5 @@
 import type { JobState, Language } from '../types'
+import { useT, type Key } from '../i18n'
 import { Card } from './ui'
 import { Banner } from './Banner'
 
@@ -13,26 +14,28 @@ function fmtRunAt(epoch?: number): string {
   return new Date(epoch * 1000).toLocaleString()
 }
 
-const LABELS: Record<string, string> = {
-  queued: 'Queued', scheduled: 'Scheduled', running: 'Translating…',
-  done: 'Done', failed: 'Failed', pending: 'Submitting…',
+const LABEL_KEY: Record<string, Key> = {
+  queued: 'status.queued', scheduled: 'status.scheduledLabel', running: 'status.running',
+  done: 'status.done', failed: 'status.failed', pending: 'status.pending',
 }
 
 export function StatusView({ job, languages }: { job: JobState; languages: Language[] }) {
+  const t = useT()
   const p = job.progress
   const pct = p && p.total ? Math.round((p.done / p.total) * 100) : 0
   const nameOf = (c: string) => languages.find((l) => l.code === c)?.name ?? c
   const scheduledFuture = job.status === 'scheduled' && job.run_at && job.run_at * 1000 > Date.now()
+  const label = LABEL_KEY[job.status] ? t(LABEL_KEY[job.status]) : job.status
 
   return (
     <Card>
-      <h1 className="mb-1 text-[1.5rem] font-semibold text-primary">Your translation</h1>
-      <p className="mb-5 text-sm text-text-secondary">You can leave this page — the result is emailed when ready.</p>
+      <h1 className="mb-1 text-[1.5rem] font-semibold text-primary">{t('status.title')}</h1>
+      <p className="mb-5 text-sm text-text-secondary">{t('status.intro')}</p>
 
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-text-primary">{LABELS[job.status] ?? job.status}</span>
-          <span className="text-[0.8125rem] text-text-secondary">Estimated {fmtEstimate(job.estimate_s)}</span>
+          <span className="text-sm font-medium text-text-primary">{label}</span>
+          <span className="text-[0.8125rem] text-text-secondary">{t('status.estimated', { t: fmtEstimate(job.estimate_s) })}</span>
         </div>
 
         {p && (
@@ -43,7 +46,7 @@ export function StatusView({ job, languages }: { job: JobState; languages: Langu
                 style={{ width: `${job.status === 'done' ? 100 : pct}%` }}
               />
             </div>
-            <p className="mt-1 text-[0.8125rem] text-text-secondary">{p.done} of {p.total} languages</p>
+            <p className="mt-1 text-[0.8125rem] text-text-secondary">{t('status.progress', { done: p.done, total: p.total })}</p>
             {p.langs_done.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {p.langs_done.map((c) => (
@@ -57,10 +60,10 @@ export function StatusView({ job, languages }: { job: JobState; languages: Langu
         )}
 
         {scheduledFuture && (
-          <Banner kind="info">Scheduled to run at {fmtRunAt(job.run_at)}.</Banner>
+          <Banner kind="info">{t('status.scheduledAt', { time: fmtRunAt(job.run_at) })}</Banner>
         )}
         {job.status === 'failed' && (
-          <Banner kind="danger">The translation failed. Please try again or contact your administrator.</Banner>
+          <Banner kind="danger">{t('status.failed')}</Banner>
         )}
       </div>
     </Card>

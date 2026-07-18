@@ -1,4 +1,5 @@
 import type { Language } from '../types'
+import { useT } from '../i18n'
 import { Field, inputClass } from './ui'
 
 export function LanguagePicker({
@@ -10,9 +11,10 @@ export function LanguagePicker({
   targets: Set<string>
   onToggleTarget: (code: string) => void
 }) {
+  const t = useT()
   return (
     <div className="space-y-4">
-      <Field label="Source language">
+      <Field label={t('lang.source')}>
         <select className={inputClass} value={source} onChange={(e) => onSource(e.target.value)}>
           {languages.map((l) => (
             <option key={l.code} value={l.code}>{l.name}</option>
@@ -20,7 +22,7 @@ export function LanguagePicker({
         </select>
       </Field>
 
-      <Field label={`Target languages (${targets.size} selected)`}>
+      <Field label={t('lang.targets', { n: targets.size })}>
         <div className="flex flex-wrap gap-2">
           {languages
             .filter((l) => l.code !== source)

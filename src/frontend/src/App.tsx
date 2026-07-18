@@ -1,10 +1,11 @@
 // Copyright (c) 2026 UNI Global Union. All rights reserved. See LICENSE.
-// LAIUNI Translator — user portal (Sprint 6): auth → upload → status → done.
+// LAIUNI Translator — user portal (Sprint 6 + 12 i18n): auth → upload → status → done.
 
 import { useState, useEffect, useCallback } from 'react'
 import type { JobState, Language, FormatTier, Branding, Step } from './types'
-import { getLanguages, getBranding, submitJob, getJob } from './api'
+import { getLanguages, getConfig, submitJob, getJob } from './api'
 import type { SubmitOpts } from './api'
+import { translator, TContext, LANGS_RTL, type Lang } from './i18n'
 import { AuthCard } from './components/AuthCard'
 import { PortalForm } from './components/PortalForm'
 import { StatusView } from './components/StatusView'
@@ -24,14 +25,22 @@ export default function App() {
   const [languages, setLanguages] = useState<Language[]>([])
   const [formats, setFormats] = useState<FormatTier[]>([])
   const [branding, setBranding] = useState<Branding>({})
+  const [lang, setLang] = useState<Lang>('en')
   const [job, setJob] = useState<JobState | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
-  // Load languages + branding once.
+  const t = translator(lang)
+
+  // Load languages + config (app language + branding) once.
   useEffect(() => {
     getLanguages().then((r) => { setLanguages(r.languages); setFormats(r.formats) }).catch(() => {})
-    getBranding().then((b) => { setBranding(b); applyBranding(b) }).catch(() => {})
+    getConfig().then((c) => {
+      setBranding(c.branding); applyBranding(c.branding)
+      setLang(c.app_language as Lang)
+      document.documentElement.lang = c.app_language
+      document.documentElement.dir = LANGS_RTL.includes(c.app_language as Lang) ? 'rtl' : 'ltr'
+    }).catch(() => {})
   }, [])
 
   // Poll job status while on the status screen.
@@ -56,50 +65,52 @@ export default function App() {
     try {
       const s = await submitJob(token, o)
       if (s.status === 'rejected' || s.status === 'error') {
-        setError(s.error || 'That file could not be accepted.')
+        setError(s.error || t('portal.errRejected'))
         return
       }
       setJob(s)
       setStep('status')
     } catch {
-      setError('Submission failed. Please try again.')
+      setError(t('portal.errSubmit'))
     } finally {
       setBusy(false)
     }
-  }, [token])
+  }, [token, t])
 
   function restart() {
     setJob(null); setError(''); setStep('portal')
   }
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <header className="flex items-center gap-3 border-b border-border bg-primary px-6 py-3 text-white">
-        {branding.logo_url && <img src={branding.logo_url} alt="" className="h-8" />}
-        <h1 className="text-lg font-semibold">{branding.app_title || 'LAIUNI Translator'}</h1>
-      </header>
+    <TContext.Provider value={t}>
+      <div className="flex min-h-screen flex-col">
+        <header className="flex items-center gap-3 border-b border-border bg-primary px-6 py-3 text-white">
+          {branding.logo_url && <img src={branding.logo_url} alt="" className="h-8" />}
+          <h1 className="text-lg font-semibold">{branding.app_title || 'LAIUNI Translator'}</h1>
+        </header>
 
-      <main className="flex flex-1 items-start justify-center px-4 py-10">
-        <div className="w-full max-w-flow space-y-4">
-          {step === 'auth' && (
-            <AuthCard onVerified={(t) => { setToken(t); setStep('portal') }} />
-          )}
-          {step === 'portal' && (
-            <>
-              {error && <Banner kind="danger">{error}</Banner>}
-              <PortalForm languages={languages} formats={formats} busy={busy} onSubmit={onSubmit} />
-            </>
-          )}
-          {step === 'status' && job && <StatusView job={job} languages={languages} />}
-          {step === 'done' && job && (
-            <DoneScreen token={token} jobRef={job.ref} onRestart={restart} />
-          )}
-        </div>
-      </main>
+        <main className="flex flex-1 items-start justify-center px-4 py-10">
+          <div className="w-full max-w-flow space-y-4">
+            {step === 'auth' && (
+              <AuthCard onVerified={(tok) => { setToken(tok); setStep('portal') }} />
+            )}
+            {step === 'portal' && (
+              <>
+                {error && <Banner kind="danger">{error}</Banner>}
+                <PortalForm languages={languages} formats={formats} busy={busy} onSubmit={onSubmit} />
+              </>
+            )}
+            {step === 'status' && job && <StatusView job={job} languages={languages} />}
+            {step === 'done' && job && (
+              <DoneScreen token={token} jobRef={job.ref} onRestart={restart} />
+            )}
+          </div>
+        </main>
 
-      <footer className="py-4 text-center text-[0.8125rem] text-text-secondary">
-        © 2026 UNI Global Union
-      </footer>
-    </div>
+        <footer className="py-4 text-center text-[0.8125rem] text-text-secondary">
+          {t('footer')}
+        </footer>
+      </div>
+    </TContext.Provider>
   )
 }

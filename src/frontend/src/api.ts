@@ -41,6 +41,17 @@ export async function getBranding(): Promise<Branding> {
   }
 }
 
+export interface PortalConfig { app_language: string; auth_mode: string; branding: Branding }
+
+export async function getConfig(): Promise<PortalConfig> {
+  try {
+    const d = await asJson<{ app_language?: string; auth_mode?: string; branding?: Branding }>(await fetch('/internal/config'))
+    return { app_language: d.app_language || 'en', auth_mode: d.auth_mode || 'token', branding: d.branding ?? {} }
+  } catch {
+    return { app_language: 'en', auth_mode: 'token', branding: {} }
+  }
+}
+
 export interface SubmitOpts {
   file: File
   sourceLang: string

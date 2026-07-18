@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { Language, FormatTier } from '../types'
 import type { SubmitOpts } from '../api'
+import { useT } from '../i18n'
 import { Button, Card, Field, inputClass } from './ui'
 import { UploadZone, tierInfo } from './UploadZone'
 import { LanguagePicker } from './LanguagePicker'
@@ -13,6 +14,7 @@ export function PortalForm({
   busy: boolean
   onSubmit: (o: SubmitOpts) => void
 }) {
+  const t = useT()
   const [file, setFile] = useState<File | null>(null)
   const [source, setSource] = useState('en')
   const [targets, setTargets] = useState<Set<string>>(new Set())
@@ -33,8 +35,8 @@ export function PortalForm({
 
   return (
     <Card>
-      <h1 className="mb-1 text-[1.5rem] font-semibold text-primary">Translate a document</h1>
-      <p className="mb-5 text-sm text-text-secondary">One file, one or more of {languages.length} languages. Results are emailed to you.</p>
+      <h1 className="mb-1 text-[1.5rem] font-semibold text-primary">{t('portal.title')}</h1>
+      <p className="mb-5 text-sm text-text-secondary">{t('portal.intro', { n: languages.length })}</p>
 
       <div className="space-y-6">
         <UploadZone file={file} onFile={setFile} formats={formats} />
@@ -53,23 +55,23 @@ export function PortalForm({
             className="text-[0.8125rem] font-medium text-text-secondary hover:underline"
             onClick={() => setShowGlossary((s) => !s)}
           >
-            {showGlossary ? '– Hide glossary' : '+ Add a glossary (optional)'}
+            {showGlossary ? t('portal.glossaryHide') : t('portal.glossaryShow')}
           </button>
           {showGlossary && (
             <div className="mt-2">
-              <Field label="Glossary" hint="One term per line, e.g. collective bargaining -> negociación colectiva">
+              <Field label={t('portal.glossary')} hint={t('portal.glossaryHint')}>
                 <textarea
                   className={`${inputClass} h-24 resize-y`}
                   value={glossary}
                   onChange={(e) => setGlossary(e.target.value)}
-                  placeholder="source term -> preferred translation"
+                  placeholder={t('portal.glossaryPlaceholder')}
                 />
               </Field>
             </div>
           )}
         </div>
 
-        <Field label="When to run">
+        <Field label={t('portal.when')}>
           <div className="flex gap-2">
             {(['scheduled', 'immediate'] as const).map((m) => (
               <button
@@ -81,14 +83,14 @@ export function PortalForm({
                   mode === m ? 'border-primary bg-primary text-white' : 'border-border bg-surface text-text-primary'
                 }`}
               >
-                {m === 'scheduled' ? 'Scheduled (overnight)' : 'Immediate'}
+                {m === 'scheduled' ? t('portal.scheduled') : t('portal.immediate')}
               </button>
             ))}
           </div>
         </Field>
         {mode === 'scheduled' && (
           <p className="-mt-3 text-[0.8125rem] text-text-secondary">
-            Scheduled jobs run after 23:00 local time to keep the service responsive during the day.
+            {t('portal.scheduleNote')}
           </p>
         )}
 
@@ -99,7 +101,7 @@ export function PortalForm({
             file && onSubmit({ file, sourceLang: source, targetLangs: [...targets], glossary, mode })
           }
         >
-          {busy ? 'Submitting…' : 'Start translation'}
+          {busy ? t('portal.submitting') : t('portal.start')}
         </Button>
       </div>
     </Card>

@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import { requestToken, verify } from '../api'
+import { useT } from '../i18n'
 import { Button, Card, Field, inputClass } from './ui'
 import { Banner } from './Banner'
 
 export function AuthCard({ onVerified }: { onVerified: (token: string, email: string) => void }) {
+  const t = useT()
   const [email, setEmail] = useState('')
   const [code, setCode] = useState('')
   const [sent, setSent] = useState(false)
@@ -17,7 +19,7 @@ export function AuthCard({ onVerified }: { onVerified: (token: string, email: st
       await requestToken(email.trim())
       setSent(true)
     } catch {
-      setError('Could not reach the server. Please try again.')
+      setError(t('auth.errServer'))
     } finally {
       setBusy(false)
     }
@@ -30,7 +32,7 @@ export function AuthCard({ onVerified }: { onVerified: (token: string, email: st
       const token = await verify(email.trim(), code.trim())
       onVerified(token, email.trim())
     } catch {
-      setError('That code is invalid or has expired.')
+      setError(t('auth.errCode'))
     } finally {
       setBusy(false)
     }
@@ -38,14 +40,12 @@ export function AuthCard({ onVerified }: { onVerified: (token: string, email: st
 
   return (
     <Card>
-      <h1 className="mb-1 text-[1.5rem] font-semibold text-primary">Sign in</h1>
-      <p className="mb-5 text-sm text-text-secondary">
-        Access is limited to approved addresses. Enter your email to receive a one-time code.
-      </p>
+      <h1 className="mb-1 text-[1.5rem] font-semibold text-primary">{t('auth.title')}</h1>
+      <p className="mb-5 text-sm text-text-secondary">{t('auth.intro')}</p>
 
       {!sent ? (
         <div className="space-y-4">
-          <Field label="Email">
+          <Field label={t('auth.email')}>
             <input
               className={inputClass}
               type="email"
@@ -53,17 +53,17 @@ export function AuthCard({ onVerified }: { onVerified: (token: string, email: st
               autoFocus
               onChange={(e) => setEmail(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && send()}
-              placeholder="you@organization.org"
+              placeholder={t('auth.emailPlaceholder')}
             />
           </Field>
           <Button onClick={send} disabled={busy || !email.trim()}>
-            {busy ? 'Sending…' : 'Send code'}
+            {busy ? t('auth.sending') : t('auth.sendCode')}
           </Button>
         </div>
       ) : (
         <div className="space-y-4">
-          <Banner kind="info">If your address is approved, a 6-digit code is on its way. Check your email.</Banner>
-          <Field label="Verification code">
+          <Banner kind="info">{t('auth.codeSent')}</Banner>
+          <Field label={t('auth.code')}>
             <input
               className={inputClass}
               inputMode="numeric"
@@ -75,13 +75,13 @@ export function AuthCard({ onVerified }: { onVerified: (token: string, email: st
             />
           </Field>
           <Button onClick={submit} disabled={busy || !code.trim()}>
-            {busy ? 'Verifying…' : 'Verify'}
+            {busy ? t('auth.verifying') : t('auth.verify')}
           </Button>
           <button
             className="w-full text-center text-[0.8125rem] text-text-secondary hover:underline"
             onClick={() => { setSent(false); setCode(''); setError('') }}
           >
-            Use a different email
+            {t('auth.differentEmail')}
           </button>
         </div>
       )}

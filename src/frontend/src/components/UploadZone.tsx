@@ -1,10 +1,12 @@
 import { useRef, useState } from 'react'
 import type { FormatTier } from '../types'
+import { useT, type Key } from '../i18n'
 import { Banner } from './Banner'
 
 export interface TierInfo {
   tier: 'tier1' | 'tier2' | 'tier3' | null
-  message: string
+  ext: string
+  messageKey: Key
   kind: 'info' | 'danger'
   blocked: boolean
 }
@@ -15,13 +17,13 @@ export function tierInfo(filename: string, formats: FormatTier[]): TierInfo {
   const match = formats.find((f) => f.ext === ext)
   switch (match?.tier) {
     case 'tier1':
-      return { tier: 'tier1', message: 'Plain text — recommended for the cleanest result.', kind: 'info', blocked: false }
+      return { tier: 'tier1', ext, messageKey: 'upload.tier1', kind: 'info', blocked: false }
     case 'tier2':
-      return { tier: 'tier2', message: 'Word / RTF — supported; minor formatting shifts are possible.', kind: 'info', blocked: false }
+      return { tier: 'tier2', ext, messageKey: 'upload.tier2', kind: 'info', blocked: false }
     case 'tier3':
-      return { tier: 'tier3', message: 'PowerPoint — experimental; recomposition may fail. Review the output.', kind: 'danger', blocked: false }
+      return { tier: 'tier3', ext, messageKey: 'upload.tier3', kind: 'danger', blocked: false }
     default:
-      return { tier: null, message: `Unsupported format ${ext || '(none)'}. Try .txt or .md.`, kind: 'danger', blocked: true }
+      return { tier: null, ext, messageKey: 'upload.unsupported', kind: 'danger', blocked: true }
   }
 }
 
@@ -32,6 +34,7 @@ export function UploadZone({
   onFile: (f: File | null) => void
   formats: FormatTier[]
 }) {
+  const t = useT()
   const inputRef = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState(false)
   const info = file ? tierInfo(file.name, formats) : null
@@ -56,7 +59,7 @@ export function UploadZone({
         {file ? (
           <span className="font-medium text-text-primary">{file.name}</span>
         ) : (
-          <span className="text-text-secondary">Drop a document here, or click to choose one file.</span>
+          <span className="text-text-secondary">{t('upload.drop')}</span>
         )}
       </div>
       <input
@@ -65,7 +68,11 @@ export function UploadZone({
         className="hidden"
         onChange={(e) => onFile(e.target.files?.[0] ?? null)}
       />
-      {info && <div className="mt-3"><Banner kind={info.kind}>{info.message}</Banner></div>}
+      {info && (
+        <div className="mt-3">
+          <Banner kind={info.kind}>{t(info.messageKey, { ext: info.ext || '—' })}</Banner>
+        </div>
+      )}
     </div>
   )
 }

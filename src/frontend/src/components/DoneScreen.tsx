@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { downloadJob } from '../api'
+import { useT } from '../i18n'
 import { Button, Card } from './ui'
 import { Banner } from './Banner'
 
@@ -10,6 +11,7 @@ export function DoneScreen({
   jobRef: string
   onRestart: () => void
 }) {
+  const t = useT()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -26,7 +28,7 @@ export function DoneScreen({
       a.remove()
       URL.revokeObjectURL(url)
     } catch {
-      setError('This download is no longer available (it may have expired).')
+      setError(t('done.errExpired'))
     } finally {
       setBusy(false)
     }
@@ -34,15 +36,13 @@ export function DoneScreen({
 
   return (
     <Card>
-      <h1 className="mb-1 text-[1.5rem] font-semibold text-secondary">Translation ready</h1>
-      <p className="mb-5 text-sm text-text-secondary">
-        We’ve emailed you the original and all translations. You can also download them here while they’re available (48 hours).
-      </p>
+      <h1 className="mb-1 text-[1.5rem] font-semibold text-secondary">{t('done.title')}</h1>
+      <p className="mb-5 text-sm text-text-secondary">{t('done.intro')}</p>
       <div className="space-y-3">
         <Button variant="accent" onClick={download} disabled={busy}>
-          {busy ? 'Preparing…' : 'Download all (.zip)'}
+          {busy ? t('done.preparing') : t('done.download')}
         </Button>
-        <Button variant="ghost" onClick={onRestart}>Translate another document</Button>
+        <Button variant="ghost" onClick={onRestart}>{t('done.another')}</Button>
         {error && <Banner kind="danger">{error}</Banner>}
       </div>
     </Card>
