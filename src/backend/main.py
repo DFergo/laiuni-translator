@@ -23,8 +23,6 @@ from src.api.v1.admin.contacts import router as contacts_router
 from src.api.v1.admin.knowledge import router as knowledge_router
 from src.api.v1.admin.knowledge import ensure_defaults as ensure_knowledge_defaults
 from src.api.v1.admin.portability import router as portability_router
-# TEMPORARY (Sprint 2 proof) — retire in Sprint 3 with document_translator.
-from src.api.v1.debug.translate_segment import router as debug_translate_router
 from src.core.config import config
 from src.services.polling import polling_loop
 from src.services.prompt_assembler import ensure_defaults
@@ -64,7 +62,6 @@ app.include_router(smtp_router)
 app.include_router(contacts_router)
 app.include_router(knowledge_router)
 app.include_router(portability_router)
-app.include_router(debug_translate_router)  # TEMPORARY (Sprint 2) — retire in Sprint 3
 
 # Admin SPA static files
 ADMIN_DIST = Path("/app/admin/dist")
