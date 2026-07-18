@@ -1,11 +1,12 @@
 import { useState } from 'react'
-import { requestToken, verify } from '../api'
+import { requestToken, requestTokenEmailOnly, verify } from '../api'
 import { useT } from '../i18n'
 import { Button, Card, Field, inputClass } from './ui'
 import { Banner } from './Banner'
 
-export function AuthCard({ onVerified }: { onVerified: (token: string, email: string) => void }) {
+export function AuthCard({ authMode = 'token', onVerified }: { authMode?: string; onVerified: (token: string, email: string) => void }) {
   const t = useT()
+  const emailOnly = authMode === 'email-only'
   const [email, setEmail] = useState('')
   const [code, setCode] = useState('')
   const [sent, setSent] = useState(false)
@@ -16,10 +17,16 @@ export function AuthCard({ onVerified }: { onVerified: (token: string, email: st
     if (!email.trim()) return
     setBusy(true); setError('')
     try {
+      if (emailOnly) {
+        // §12.5 — a whitelisted email is sufficient; sign in without a code.
+        const token = await requestTokenEmailOnly(email.trim())
+        onVerified(token, email.trim())
+        return
+      }
       await requestToken(email.trim())
       setSent(true)
     } catch {
-      setError(t('auth.errServer'))
+      setError(emailOnly ? t('auth.errNotAuthorized') : t('auth.errServer'))
     } finally {
       setBusy(false)
     }
@@ -57,7 +64,7 @@ export function AuthCard({ onVerified }: { onVerified: (token: string, email: st
             />
           </Field>
           <Button onClick={send} disabled={busy || !email.trim()}>
-            {busy ? t('auth.sending') : t('auth.sendCode')}
+            {busy ? (emailOnly ? t('auth.verifying') : t('auth.sending')) : (emailOnly ? t('auth.title') : t('auth.sendCode'))}
           </Button>
         </div>
       ) : (

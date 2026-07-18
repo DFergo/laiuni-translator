@@ -26,6 +26,7 @@ export default function App() {
   const [formats, setFormats] = useState<FormatTier[]>([])
   const [branding, setBranding] = useState<Branding>({})
   const [lang, setLang] = useState<Lang>('en')
+  const [authMode, setAuthMode] = useState('token')
   const [job, setJob] = useState<JobState | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -38,6 +39,7 @@ export default function App() {
     getConfig().then((c) => {
       setBranding(c.branding); applyBranding(c.branding)
       setLang(c.app_language as Lang)
+      setAuthMode(c.auth_mode)
       document.documentElement.lang = c.app_language
       document.documentElement.dir = LANGS_RTL.includes(c.app_language as Lang) ? 'rtl' : 'ltr'
     }).catch(() => {})
@@ -92,7 +94,7 @@ export default function App() {
         <main className="flex flex-1 items-start justify-center px-4 py-10">
           <div className="w-full max-w-flow space-y-4">
             {step === 'auth' && (
-              <AuthCard onVerified={(tok) => { setToken(tok); setStep('portal') }} />
+              <AuthCard authMode={authMode} onVerified={(tok) => { setToken(tok); setStep('portal') }} />
             )}
             {step === 'portal' && (
               <>

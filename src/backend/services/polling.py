@@ -137,7 +137,12 @@ async def _handle_auth_request(client: httpx.AsyncClient, frontend_url: str, aut
                 from src.services.user_tokens import mint_user_token
                 result["token"] = mint_user_token(email, frontend_id)
         else:
-            # Code request — check whitelist, generate code, send email
+            # Code request — check whitelist, generate code, send email.
+            # In email-only mode (§12.5) a whitelisted email is sufficient: skip the
+            # code round-trip and mint the token immediately. Weaker by design —
+            # a per-frontend choice for trusted private-network deploys.
+            from src.services.frontend_registry import load_config
+            auth_mode = load_config(frontend_id).get("auth_mode", "token") if frontend_id else "token"
             if not is_email_authorized(email, frontend_id):
                 result = {
                     "session_token": session_token,
@@ -145,6 +150,15 @@ async def _handle_auth_request(client: httpx.AsyncClient, frontend_url: str, aut
                     "email": email,
                 }
                 logger.info(f"Auth rejected: {email} not in whitelist")
+            elif auth_mode == "email-only":
+                from src.services.user_tokens import mint_user_token
+                result = {
+                    "session_token": session_token,
+                    "status": "verified",
+                    "email": email,
+                    "token": mint_user_token(email, frontend_id),
+                }
+                logger.info(f"Email-only auth: {email} signed in without a code")
             elif not smtp_configured():
                 result = {
                     "session_token": session_token,

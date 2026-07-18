@@ -17,6 +17,20 @@ export async function requestToken(email: string): Promise<void> {
   // Always generic — no enumeration (SPEC §8). Nothing to read.
 }
 
+// Email-only mode (§12.5): a whitelisted email is sufficient — the sidecar waits
+// for the backend and returns the bearer token directly (no code step).
+export async function requestTokenEmailOnly(email: string): Promise<string> {
+  const r = await fetch('/request-token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  })
+  if (!r.ok) throw new Error('not_authorized')
+  const d = (await r.json()) as { token?: string }
+  if (!d.token) throw new Error('not_authorized')
+  return d.token
+}
+
 export async function verify(email: string, code: string): Promise<string> {
   const r = await fetch('/verify', {
     method: 'POST',

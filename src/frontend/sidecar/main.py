@@ -591,13 +591,28 @@ class VerifyRequest(BaseModel):
 
 @app.post("/request-token")
 async def request_token(req: RequestTokenRequest):
-    """Ask for a magic code. Generic response — no user enumeration (SPEC §8)."""
+    """Ask for a magic code. Generic response — no user enumeration (SPEC §8).
+
+    In **email-only** mode (§12.5) a whitelisted email is enough: the backend
+    resolves the request straight to a token, so this waits for the result and
+    returns `{token}` (or 401). Weaker by design — a per-frontend choice."""
     st = req.email.lower().strip()
     async with _auth_lock:
         _auth_requests[st] = {"status": "pending", "email": st, "created_at": time.time()}
         _auth_queue.append({"session_token": st, "email": st, "language": req.language})
     logger.info(f"request-token for {st}")
-    return {"ok": True}
+
+    if _frontend_config.get("auth_mode") != "email-only":
+        return {"ok": True}
+
+    def _resolved():
+        s = _auth_requests.get(st, {})
+        return s if s.get("status") in _AUTH_TERMINAL else None
+
+    state = await _wait_for(_resolved)
+    if state and state.get("status") == "verified" and state.get("token"):
+        return {"token": state["token"]}
+    raise HTTPException(status_code=401, detail="not_authorized")
 
 
 @app.post("/verify")

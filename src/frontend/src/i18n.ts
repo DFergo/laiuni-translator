@@ -12,7 +12,7 @@ export type Key =
   | 'auth.title' | 'auth.intro' | 'auth.email' | 'auth.emailPlaceholder'
   | 'auth.sendCode' | 'auth.sending' | 'auth.codeSent' | 'auth.code'
   | 'auth.verify' | 'auth.verifying' | 'auth.differentEmail'
-  | 'auth.errServer' | 'auth.errCode'
+  | 'auth.errServer' | 'auth.errCode' | 'auth.errNotAuthorized'
   | 'portal.title' | 'portal.intro' | 'portal.glossaryShow' | 'portal.glossaryHide'
   | 'portal.glossary' | 'portal.glossaryHint' | 'portal.glossaryPlaceholder'
   | 'portal.when' | 'portal.scheduled' | 'portal.immediate' | 'portal.scheduleNote'
@@ -42,6 +42,7 @@ const en: Dict = {
   'auth.differentEmail': 'Use a different email',
   'auth.errServer': 'Could not reach the server. Please try again.',
   'auth.errCode': 'That code is invalid or has expired.',
+  'auth.errNotAuthorized': 'This email is not authorized to sign in.',
   'portal.title': 'Translate a document',
   'portal.intro': 'One file, one or more of {n} languages. Results are emailed to you.',
   'portal.glossaryShow': '+ Add a glossary (optional)',
