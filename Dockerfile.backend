@@ -19,10 +19,8 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends pandoc \
     && rm -rf /var/lib/apt/lists/*
 
-# Install PyTorch CPU-only first (prevents CUDA/NVIDIA bloat from sentence-transformers)
-RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
-
-# Install remaining dependencies
+# Install dependencies (HRDD RAG stack — torch / sentence-transformers /
+# llama-index — was removed after the Sprint 1 refactor; no longer installed)
 COPY src/backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 

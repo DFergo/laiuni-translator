@@ -4,13 +4,8 @@ pydantic==2.10.4
 bcrypt==4.2.1
 httpx==0.28.1
 python-multipart==0.0.20
-llama-index-core>=0.12,<0.15
-llama-index-readers-file>=0.4
-docx2txt>=0.8
-llama-index-embeddings-huggingface>=0.5
-sentence-transformers>=2.2
 aiosmtplib>=3.0
-openpyxl>=3.1
+openpyxl>=3.1             # admin whitelist import/export (.xlsx) — contacts.py
 python-docx>=1.1          # Tier-2 .docx read/write (Sprint 7)
 pypandoc>=1.13            # Tier-2 .rtf via the in-container pandoc binary (Sprint 7)
 python-pptx>=1.0          # Tier-3 .pptx read/write, experimental (Sprint 8)
