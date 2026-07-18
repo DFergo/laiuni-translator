@@ -131,15 +131,8 @@ export async function updateFrontend(id: string, data: { enabled?: boolean; name
 
 export interface FrontendConfig {
   configured: boolean
-  profiles: string[]
-  auth: Record<string, boolean>
-  languages: string[]
-  modes: Record<string, string[]>
-  display_names: { profiles: Record<string, string>; modes: Record<string, string> }
-  disclaimer_enabled: boolean
-  data_protection_email: string
-  session_resume_window_hours: number
-  auth_required?: boolean
+  app_language: string          // "" = use the global default
+  auth_mode: 'token' | 'email-only'
 }
 
 export async function getFrontendConfig(id: string): Promise<{ frontend_id: string; config: FrontendConfig }> {
