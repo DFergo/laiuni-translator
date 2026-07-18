@@ -3,8 +3,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.backend
+    # BACKEND_PORT is REQUIRED — deploy fails clearly if it is not set.
+    # Host port for the admin panel + /health. The backend is not internet-facing
+    # (pull-inverse): this is local/admin access only, never exposed via Cloudflared.
     ports:
-      - "8000:8000"
+      - "${BACKEND_PORT:?BACKEND_PORT is required — set the host port for the admin panel}:8000"
     volumes:
       # DATA_DIR = /app/data (Sprint 24 layout: config/, sessions/, campaigns/, deleted/).
       # Named volume (default — VPS/headless):
