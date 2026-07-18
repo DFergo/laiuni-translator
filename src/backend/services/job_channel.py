@@ -129,7 +129,7 @@ async def _handle_submit(client: httpx.AsyncClient, url: str, fid: str, req: dic
     from src.services.smtp_service import resolve_contact
     from src.api.v1.admin.settings import scheduling
     contact = resolve_contact(payload["sub"], fid) or {}
-    sched = scheduling()
+    sched = scheduling(fid)
     default_mode = "immediate" if sched["default_immediate"] else "scheduled"
     requested = req.get("mode", default_mode)
     may_choose = sched["allow_user_choice"] or bool(contact.get("schedule_override"))

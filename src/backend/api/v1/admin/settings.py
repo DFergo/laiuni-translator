@@ -63,14 +63,34 @@ def retention_hours() -> int:
     return int(get_setting("retention_hours", config.retention_hours))
 
 
-def scheduling() -> dict[str, Any]:
-    """The effective scheduling-window settings (Sprint 13, §12.6)."""
+_SCHEDULE_KEYS = (
+    "schedule_window_start_hour", "schedule_window_duration_hours",
+    "allow_user_schedule_choice", "schedule_default_immediate",
+)
+
+
+def scheduling(frontend_id: str = "") -> dict[str, Any]:
+    """The effective scheduling-window settings (Sprint 13, §12.6), resolved
+    per-frontend: a frontend's config may override any of the four keys; anything
+    it leaves unset falls back to the global admin Settings."""
     s = load_settings()
+    fe: dict[str, Any] = {}
+    if frontend_id:
+        try:
+            from src.services.frontend_registry import load_config
+            fe = load_config(frontend_id) or {}
+        except Exception:
+            fe = {}
+
+    def pick(key: str, default: Any) -> Any:
+        v = fe.get(key)
+        return v if v is not None else s.get(key, default)
+
     return {
-        "start_hour": int(s.get("schedule_window_start_hour", config.schedule_default_hour)),
-        "duration_hours": int(s.get("schedule_window_duration_hours", 3)),
-        "allow_user_choice": bool(s.get("allow_user_schedule_choice", True)),
-        "default_immediate": bool(s.get("schedule_default_immediate", False)),
+        "start_hour": int(pick("schedule_window_start_hour", config.schedule_default_hour)),
+        "duration_hours": int(pick("schedule_window_duration_hours", 3)),
+        "allow_user_choice": bool(pick("allow_user_schedule_choice", True)),
+        "default_immediate": bool(pick("schedule_default_immediate", False)),
     }
 
 

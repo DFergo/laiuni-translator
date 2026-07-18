@@ -140,6 +140,11 @@ export interface FrontendConfig {
   configured: boolean
   app_language: string          // "" = use the global default
   auth_mode: 'token' | 'email-only'
+  // Optional per-frontend scheduling overrides (null/undefined = use global Settings).
+  schedule_window_start_hour?: number | null
+  schedule_window_duration_hours?: number | null
+  allow_user_schedule_choice?: boolean | null
+  schedule_default_immediate?: boolean | null
 }
 
 export async function getFrontendConfig(id: string): Promise<{ frontend_id: string; config: FrontendConfig }> {

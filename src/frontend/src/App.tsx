@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback } from 'react'
 import type { JobState, Language, FormatTier, Branding, Step } from './types'
 import { SUPPORTED_FORMATS } from './types'
 import { getLanguages, getConfig, submitJob, getJob } from './api'
-import type { SubmitOpts } from './api'
+import type { SubmitOpts, SchedulingPolicy } from './api'
 import { translator, TContext, LANGS_RTL, type Lang } from './i18n'
 import { AuthCard } from './components/AuthCard'
 import { PortalForm } from './components/PortalForm'
@@ -28,6 +28,7 @@ export default function App() {
   const [branding, setBranding] = useState<Branding>({})
   const [lang, setLang] = useState<Lang>('en')
   const [authMode, setAuthMode] = useState('token')
+  const [scheduling, setScheduling] = useState<SchedulingPolicy | null>(null)
   const [job, setJob] = useState<JobState | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -113,12 +114,15 @@ export default function App() {
         <main className="flex flex-1 items-start justify-center px-4 py-10">
           <div className="w-full max-w-flow space-y-4">
             {step === 'auth' && (
-              <AuthCard authMode={authMode} onVerified={(tok) => { setToken(tok); setStep('portal') }} />
+              <AuthCard
+                authMode={authMode}
+                onVerified={(tok, _email, sched) => { setToken(tok); setScheduling(sched); setStep('portal') }}
+              />
             )}
             {step === 'portal' && (
               <>
                 {error && <Banner kind="danger">{error}</Banner>}
-                <PortalForm languages={languages} formats={formats} busy={busy} onSubmit={onSubmit} />
+                <PortalForm languages={languages} formats={formats} busy={busy} scheduling={scheduling} onSubmit={onSubmit} />
               </>
             )}
             {step === 'status' && job && <StatusView job={job} languages={languages} />}

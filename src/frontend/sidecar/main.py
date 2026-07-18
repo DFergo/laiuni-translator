@@ -364,6 +364,7 @@ class AuthResultRequest(BaseModel):
     status: str  # "code_sent", "verified", "invalid_code", "not_authorized", "smtp_error", "smtp_not_configured"
     email: str = ""
     token: str = ""  # Sprint 5: user bearer token, present when status == "verified"
+    scheduling: dict[str, Any] | None = None  # Sprint 13: {may_choose, default_immediate}, on "verified"
 
 
 @app.post("/internal/auth/request-code")
@@ -423,6 +424,8 @@ async def push_auth_result(session_token: str, req: AuthResultRequest):
                 _auth_requests[session_token]["email"] = req.email
             if req.token:
                 _auth_requests[session_token]["token"] = req.token
+            if req.scheduling is not None:
+                _auth_requests[session_token]["scheduling"] = req.scheduling
             logger.info(f"Auth result for {session_token}: {req.status}")
         else:
             logger.warning(f"Auth result for {session_token} but no pending request")
@@ -622,7 +625,7 @@ async def request_token(req: RequestTokenRequest):
 
     state = await _wait_for(_resolved)
     if state and state.get("status") == "verified" and state.get("token"):
-        return {"token": state["token"]}
+        return {"token": state["token"], "scheduling": state.get("scheduling")}
     raise HTTPException(status_code=401, detail="not_authorized")
 
 
@@ -641,7 +644,7 @@ async def verify(req: VerifyRequest):
 
     state = await _wait_for(_resolved)
     if state and state.get("status") == "verified" and state.get("token"):
-        return {"token": state["token"]}
+        return {"token": state["token"], "scheduling": state.get("scheduling")}
     raise HTTPException(status_code=401, detail="invalid_code")
 
 

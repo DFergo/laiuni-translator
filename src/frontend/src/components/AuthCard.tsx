@@ -1,10 +1,10 @@
 import { useState } from 'react'
-import { requestToken, requestTokenEmailOnly, verify } from '../api'
+import { requestToken, requestTokenEmailOnly, verify, type SchedulingPolicy } from '../api'
 import { useT } from '../i18n'
 import { Button, Card, Field, inputClass } from './ui'
 import { Banner } from './Banner'
 
-export function AuthCard({ authMode = 'token', onVerified }: { authMode?: string; onVerified: (token: string, email: string) => void }) {
+export function AuthCard({ authMode = 'token', onVerified }: { authMode?: string; onVerified: (token: string, email: string, scheduling: SchedulingPolicy | null) => void }) {
   const t = useT()
   const emailOnly = authMode === 'email-only'
   const [email, setEmail] = useState('')
@@ -19,8 +19,8 @@ export function AuthCard({ authMode = 'token', onVerified }: { authMode?: string
     try {
       if (emailOnly) {
         // §12.5 — a whitelisted email is sufficient; sign in without a code.
-        const token = await requestTokenEmailOnly(email.trim())
-        onVerified(token, email.trim())
+        const res = await requestTokenEmailOnly(email.trim())
+        onVerified(res.token, email.trim(), res.scheduling)
         return
       }
       await requestToken(email.trim())
@@ -36,8 +36,8 @@ export function AuthCard({ authMode = 'token', onVerified }: { authMode?: string
     if (!code.trim()) return
     setBusy(true); setError('')
     try {
-      const token = await verify(email.trim(), code.trim())
-      onVerified(token, email.trim())
+      const res = await verify(email.trim(), code.trim())
+      onVerified(res.token, email.trim(), res.scheduling)
     } catch {
       setError(t('auth.errCode'))
     } finally {
@@ -56,6 +56,7 @@ export function AuthCard({ authMode = 'token', onVerified }: { authMode?: string
             <input
               className={inputClass}
               type="email"
+              dir="ltr"
               value={email}
               autoFocus
               onChange={(e) => setEmail(e.target.value)}
@@ -74,6 +75,7 @@ export function AuthCard({ authMode = 'token', onVerified }: { authMode?: string
             <input
               className={inputClass}
               inputMode="numeric"
+              dir="ltr"
               value={code}
               autoFocus
               onChange={(e) => setCode(e.target.value)}

@@ -168,7 +168,7 @@ def enqueue(
     else ``scheduled``). ``priority`` (§12.7) lets the job jump the queue."""
     now = now or datetime.now()
     from src.api.v1.admin.settings import scheduling
-    start_hour = scheduling()["start_hour"]
+    start_hour = scheduling(frontend_id)["start_hour"]
     run_at_dt = compute_run_at(mode, now, start_hour, config.scheduling_enabled)
     if chars is None:
         from src.services.document_translator import count_translatable_chars
@@ -240,19 +240,25 @@ def next_job(now: float | None = None) -> dict[str, Any] | None:
     (carry-over)."""
     now = now if now is not None else time.time()
     now_dt = datetime.fromtimestamp(now)
-    from src.api.v1.admin.settings import scheduling
-    sched = scheduling()
-    in_window = (not config.scheduling_enabled) or _in_window(
-        now_dt, sched["start_hour"], sched["duration_hours"])
-    modes = ("immediate", "scheduled") if in_window else ("immediate",)
     with _connect() as conn:
-        row = conn.execute(
+        rows = conn.execute(
             f"SELECT * FROM jobs WHERE status IN ({','.join('?' * len(_WAITING))}) "
-            f"AND run_at <= ? AND mode IN ({','.join('?' * len(modes))}) "
-            f"ORDER BY priority DESC, created_at ASC LIMIT 1",
-            (*_WAITING, now, *modes),
-        ).fetchone()
-    return _row_to_job(row) if row else None
+            f"AND run_at <= ? ORDER BY priority DESC, created_at ASC",
+            (*_WAITING, now),
+        ).fetchall()
+    # Walk candidates in priority-then-FIFO order; return the first eligible one.
+    # Immediate jobs are eligible anytime; scheduled jobs only inside *their own
+    # frontend's* window (per-frontend, §12.6) — or always when scheduling is
+    # disabled deploy-wide.
+    from src.api.v1.admin.settings import scheduling
+    for row in rows:
+        job = _row_to_job(row)
+        if job["mode"] == "immediate" or not config.scheduling_enabled:
+            return job
+        sched = scheduling(job.get("frontend_id", ""))
+        if _in_window(now_dt, sched["start_hour"], sched["duration_hours"]):
+            return job
+    return None
 
 
 def list_expired(now: float | None = None) -> list[dict[str, Any]]:

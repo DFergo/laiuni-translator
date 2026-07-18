@@ -1,26 +1,31 @@
 import { useState } from 'react'
 import type { Language, FormatTier } from '../types'
-import type { SubmitOpts } from '../api'
+import type { SubmitOpts, SchedulingPolicy } from '../api'
 import { useT } from '../i18n'
 import { Button, Card, Field, inputClass } from './ui'
 import { UploadZone, tierInfo } from './UploadZone'
 import { LanguagePicker } from './LanguagePicker'
 
 export function PortalForm({
-  languages, formats, busy, onSubmit,
+  languages, formats, busy, scheduling, onSubmit,
 }: {
   languages: Language[]
   formats: FormatTier[]
   busy: boolean
+  scheduling: SchedulingPolicy | null
   onSubmit: (o: SubmitOpts) => void
 }) {
   const t = useT()
+  // Scheduling policy (§12.6): whether the user may pick, and the default. When
+  // they may not choose, the toggle is hidden and the admin default is used.
+  const mayChoose = scheduling?.may_choose ?? true
+  const defaultImmediate = scheduling?.default_immediate ?? false
   const [file, setFile] = useState<File | null>(null)
   const [source, setSource] = useState('en')
   const [targets, setTargets] = useState<Set<string>>(new Set())
   const [glossary, setGlossary] = useState('')
   const [showGlossary, setShowGlossary] = useState(false)
-  const [mode, setMode] = useState<'immediate' | 'scheduled'>('scheduled')
+  const [mode, setMode] = useState<'immediate' | 'scheduled'>(defaultImmediate ? 'immediate' : 'scheduled')
 
   const blocked = file ? tierInfo(file.name, formats).blocked : false
   const canSubmit = !!file && !blocked && targets.size > 0 && !busy
@@ -71,23 +76,25 @@ export function PortalForm({
           )}
         </div>
 
-        <Field label={t('portal.when')}>
-          <div className="flex gap-2">
-            {(['scheduled', 'immediate'] as const).map((m) => (
-              <button
-                key={m}
-                type="button"
-                aria-pressed={mode === m}
-                onClick={() => setMode(m)}
-                className={`flex-1 rounded-md border px-3 py-2 text-sm transition ${
-                  mode === m ? 'border-primary bg-primary text-white' : 'border-border bg-surface text-text-primary'
-                }`}
-              >
-                {m === 'scheduled' ? t('portal.scheduled') : t('portal.immediate')}
-              </button>
-            ))}
-          </div>
-        </Field>
+        {mayChoose && (
+          <Field label={t('portal.when')}>
+            <div className="flex gap-2">
+              {(['scheduled', 'immediate'] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  aria-pressed={mode === m}
+                  onClick={() => setMode(m)}
+                  className={`flex-1 rounded-md border px-3 py-2 text-sm transition ${
+                    mode === m ? 'border-primary bg-primary text-white' : 'border-border bg-surface text-text-primary'
+                  }`}
+                >
+                  {m === 'scheduled' ? t('portal.scheduled') : t('portal.immediate')}
+                </button>
+              ))}
+            </div>
+          </Field>
+        )}
         {mode === 'scheduled' && (
           <p className="-mt-3 text-[0.8125rem] text-text-secondary">
             {t('portal.scheduleNote')}

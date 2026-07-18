@@ -19,27 +19,32 @@ export async function requestToken(email: string): Promise<void> {
 
 // Email-only mode (§12.5): a whitelisted email is sufficient — the sidecar waits
 // for the backend and returns the bearer token directly (no code step).
-export async function requestTokenEmailOnly(email: string): Promise<string> {
+export async function requestTokenEmailOnly(email: string): Promise<AuthResult> {
   const r = await fetch('/request-token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email }),
   })
   if (!r.ok) throw new Error('not_authorized')
-  const d = (await r.json()) as { token?: string }
+  const d = (await r.json()) as { token?: string; scheduling?: SchedulingPolicy | null }
   if (!d.token) throw new Error('not_authorized')
-  return d.token
+  return { token: d.token, scheduling: d.scheduling ?? null }
 }
 
-export async function verify(email: string, code: string): Promise<string> {
+// Per-user scheduling policy returned on sign-in (§12.6/§12.7): whether the user
+// may choose immediate vs scheduled, and the default when they can't/don't.
+export interface SchedulingPolicy { may_choose: boolean; default_immediate: boolean }
+export interface AuthResult { token: string; scheduling: SchedulingPolicy | null }
+
+export async function verify(email: string, code: string): Promise<AuthResult> {
   const r = await fetch('/verify', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, code }),
   })
   if (!r.ok) throw new Error('invalid_code')
-  const d = (await r.json()) as { token: string }
-  return d.token
+  const d = (await r.json()) as { token: string; scheduling?: SchedulingPolicy | null }
+  return { token: d.token, scheduling: d.scheduling ?? null }
 }
 
 export async function getLanguages(): Promise<LanguagesResponse> {

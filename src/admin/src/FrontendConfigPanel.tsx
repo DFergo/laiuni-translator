@@ -11,7 +11,20 @@ const LANGS: [string, string][] = [
 
 const inputCls = 'w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none'
 
-interface Cfg { configured: boolean; app_language: string; auth_mode: 'token' | 'email-only' }
+interface Cfg {
+  configured: boolean
+  app_language: string
+  auth_mode: 'token' | 'email-only'
+  schedule_window_start_hour?: number | null
+  schedule_window_duration_hours?: number | null
+  allow_user_schedule_choice?: boolean | null
+  schedule_default_immediate?: boolean | null
+}
+
+// tri-state select value <-> nullable boolean ('' = use global)
+const boolToSel = (v: boolean | null | undefined) => (v == null ? '' : v ? 'yes' : 'no')
+const selToBool = (s: string): boolean | null => (s === '' ? null : s === 'yes')
+const numOrNull = (s: string): number | null => (s.trim() === '' ? null : Number(s))
 
 export default function FrontendConfigPanel({ frontendId }: { frontendId: string }) {
   const [config, setConfig] = useState<Cfg | null>(null)
@@ -69,6 +82,44 @@ export default function FrontendConfigPanel({ frontendId }: { frontendId: string
             <option value="email-only">Email only — registered email is enough</option>
           </select>
           <p className="text-xs text-gray-400 mt-1">A registered (whitelisted) email is always required. “Email only” skips the code — for trusted private-network deploys with no external DNS.</p>
+        </div>
+      </div>
+
+      {/* Scheduling (per-frontend override) */}
+      <div className="pt-3 border-t border-gray-100">
+        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Scheduling (override)</div>
+        <p className="text-xs text-gray-400 mb-2">Leave blank / “Use global” to inherit the global Settings. These override them for this frontend only.</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Window start hour (0–23)</label>
+            <input type="number" min={0} max={23} value={config.schedule_window_start_hour ?? ''}
+              onChange={e => set({ schedule_window_start_hour: numOrNull(e.target.value) })}
+              placeholder="global" className={inputCls} />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Window duration (hours)</label>
+            <input type="number" min={1} max={24} value={config.schedule_window_duration_hours ?? ''}
+              onChange={e => set({ schedule_window_duration_hours: numOrNull(e.target.value) })}
+              placeholder="global" className={inputCls} />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Let users choose immediate/scheduled</label>
+            <select value={boolToSel(config.allow_user_schedule_choice)}
+              onChange={e => set({ allow_user_schedule_choice: selToBool(e.target.value) })} className={inputCls}>
+              <option value="">— use global —</option>
+              <option value="yes">Yes</option>
+              <option value="no">No</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Default when not chosen</label>
+            <select value={boolToSel(config.schedule_default_immediate)}
+              onChange={e => set({ schedule_default_immediate: selToBool(e.target.value) })} className={inputCls}>
+              <option value="">— use global —</option>
+              <option value="yes">Immediate</option>
+              <option value="no">Scheduled (at window start)</option>
+            </select>
+          </div>
         </div>
       </div>
 
