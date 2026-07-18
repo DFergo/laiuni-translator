@@ -55,7 +55,7 @@ async def _push_languages_if_needed(client: httpx.AsyncClient, url: str, fid: st
 
 
 async def _push_branding_if_needed(client: httpx.AsyncClient, url: str, fid: str):
-    """Push branding config + translations to sidecar (once per session, or on change)."""
+    """Push branding config (app title + logo) to sidecar (once per session, or on change)."""
     if fid in _branding_pushed:
         return
     branding_path = Path(f"/app/data/campaigns/{fid}/branding.json")
@@ -64,11 +64,7 @@ async def _push_branding_if_needed(client: httpx.AsyncClient, url: str, fid: str
         return
     try:
         data = json.loads(branding_path.read_text())
-        has_custom_text = bool(data.get("disclaimer_text") or data.get("instructions_text"))
-        # Include translations if available
-        from src.services.branding_translator import load_translations
-        translations = load_translations(fid)
-        payload = {**data, "custom": has_custom_text, "translations": translations}
+        payload = {**data, "custom": bool(data.get("app_title") or data.get("logo_url"))}
         await client.post(f"{url}/internal/branding", json=payload)
         logger.info(f"Branding pushed to {fid}")
     except Exception as e:

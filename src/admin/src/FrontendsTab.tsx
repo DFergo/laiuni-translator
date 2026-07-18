@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
-import { listFrontends, registerFrontend, updateFrontend, removeFrontend, getFrontendBranding, updateFrontendBranding, getBrandingTranslationStatus, retranslateBranding, listDeletedFrontends, restoreFrontend, exportGlobalConfig, importGlobalConfig, type Frontend, type BrandingConfig } from './api'
+import { listFrontends, registerFrontend, updateFrontend, removeFrontend, getFrontendBranding, updateFrontendBranding, listDeletedFrontends, restoreFrontend, exportGlobalConfig, importGlobalConfig, type Frontend, type BrandingConfig } from './api'
 import FrontendConfigPanel from './FrontendConfigPanel'
-import { DEFAULT_DISCLAIMER_MD, DEFAULT_INSTRUCTIONS_MD } from './brandingDefaults'
 
 export default function FrontendsTab() {
   const [frontends, setFrontends] = useState<Frontend[]>([])
@@ -85,7 +84,6 @@ export default function FrontendsTab() {
   const [branding, setBranding] = useState<BrandingConfig | null>(null)
   const [brandingSaving, setBrandingSaving] = useState(false)
   const [brandingSuccess, setBrandingSuccess] = useState('')
-  const [translationStatus, setTranslationStatus] = useState<{ status: string; progress: number; total: number } | null>(null)
   const [configOpen, setConfigOpen] = useState<string | null>(null)
 
   const startEdit = (f: Frontend) => {
@@ -103,7 +101,6 @@ export default function FrontendsTab() {
     if (brandingOpen === id) {
       setBrandingOpen(null)
       setBranding(null)
-      setTranslationStatus(null)
       return
     }
     try {
@@ -115,47 +112,17 @@ export default function FrontendsTab() {
     }
   }
 
-  const pollTranslation = (fid: string) => {
-    const poll = setInterval(async () => {
-      try {
-        const s = await getBrandingTranslationStatus(fid)
-        setTranslationStatus(s)
-        if (s.status === 'done' || s.status === 'idle') {
-          clearInterval(poll)
-          setTimeout(() => setTranslationStatus(null), 5000)
-        }
-      } catch {
-        clearInterval(poll)
-      }
-    }, 2000)
-  }
-
   const handleBrandingSave = async () => {
     if (!brandingOpen || !branding) return
     setBrandingSaving(true)
-    setTranslationStatus(null)
     try {
-      const result = await updateFrontendBranding(brandingOpen, branding)
+      await updateFrontendBranding(brandingOpen, branding)
       setBrandingSuccess('Branding saved and pushed to frontend')
       setTimeout(() => setBrandingSuccess(''), 3000)
-
-      // Fill-missing translation started → poll progress
-      if (result.translation_status === 'translating') pollTranslation(brandingOpen)
     } catch {
       // ignore
     } finally {
       setBrandingSaving(false)
-    }
-  }
-
-  const handleRetranslate = async () => {
-    if (!brandingOpen) return
-    setTranslationStatus(null)
-    try {
-      const result = await retranslateBranding(brandingOpen)
-      if (result.translation_status === 'translating') pollTranslation(brandingOpen)
-    } catch {
-      // ignore
     }
   }
 
@@ -284,7 +251,7 @@ export default function FrontendsTab() {
                           type="text"
                           value={branding.app_title}
                           onChange={e => setBranding({ ...branding, app_title: e.target.value })}
-                          placeholder="HRDD Helper"
+                          placeholder="UNI Translator"
                           className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
                         />
                       </div>
@@ -299,34 +266,6 @@ export default function FrontendsTab() {
                         />
                       </div>
                     </div>
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="block text-xs font-medium text-gray-600">Disclaimer page (Markdown — whole page, headings included)</label>
-                        <button type="button" onClick={() => setBranding({ ...branding, disclaimer_text: DEFAULT_DISCLAIMER_MD })}
-                          className="text-xs text-uni-blue hover:underline">Load default template</button>
-                      </div>
-                      <textarea
-                        value={branding.disclaimer_text}
-                        onChange={e => setBranding({ ...branding, disclaimer_text: e.target.value })}
-                        rows={10}
-                        placeholder="Leave empty for the default disclaimer page. Use ## for headings. [DATA_PROTECTION_EMAIL] is substituted at render time."
-                        className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-xs font-mono focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
-                      />
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="block text-xs font-medium text-gray-600">Instructions page (Markdown — whole page, overrides default for all roles)</label>
-                        <button type="button" onClick={() => setBranding({ ...branding, instructions_text: DEFAULT_INSTRUCTIONS_MD })}
-                          className="text-xs text-uni-blue hover:underline">Load default template</button>
-                      </div>
-                      <textarea
-                        value={branding.instructions_text}
-                        onChange={e => setBranding({ ...branding, instructions_text: e.target.value })}
-                        rows={10}
-                        placeholder="Leave empty for the default instructions page. Use ## for headings."
-                        className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-xs font-mono focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
-                      />
-                    </div>
                     <div className="flex items-center gap-3">
                       <button
                         onClick={handleBrandingSave}
@@ -335,35 +274,8 @@ export default function FrontendsTab() {
                       >
                         {brandingSaving ? 'Saving...' : 'Save Branding'}
                       </button>
-                      {(branding.disclaimer_text || branding.instructions_text) && (
-                        <button
-                          onClick={handleRetranslate}
-                          disabled={brandingSaving}
-                          className="border border-gray-300 text-gray-600 rounded-lg px-4 py-1.5 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
-                          title="Regenerate all languages from the current English source (overwrites existing translations)"
-                        >
-                          Re-translate all
-                        </button>
-                      )}
                       {brandingSuccess && <span className="text-xs text-green-600">{brandingSuccess}</span>}
                     </div>
-                    {translationStatus && translationStatus.status === 'translating' && (
-                      <div className="space-y-1">
-                        <div className="flex items-center justify-between text-xs text-gray-500">
-                          <span>Translating to {translationStatus.total} languages...</span>
-                          <span>{translationStatus.progress}/{translationStatus.total}</span>
-                        </div>
-                        <div className="w-full bg-gray-200 rounded-full h-1.5">
-                          <div
-                            className="bg-uni-blue h-1.5 rounded-full transition-all"
-                            style={{ width: `${(translationStatus.progress / translationStatus.total) * 100}%` }}
-                          />
-                        </div>
-                      </div>
-                    )}
-                    {translationStatus && translationStatus.status === 'done' && (
-                      <p className="text-xs text-green-600">Translations complete ({translationStatus.total} languages)</p>
-                    )}
                   </div>
                 )}
               </div>

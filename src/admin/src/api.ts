@@ -397,27 +397,17 @@ export async function getFrontendNotificationEmails(frontendId: string): Promise
 export interface BrandingConfig {
   app_title: string
   logo_url: string
-  disclaimer_text: string
-  instructions_text: string
 }
 
 export async function getFrontendBranding(frontendId: string): Promise<BrandingConfig> {
   return request(`/admin/frontends/${frontendId}/branding`);
 }
 
-export async function updateFrontendBranding(frontendId: string, data: BrandingConfig): Promise<BrandingConfig & { translation_status?: string }> {
+export async function updateFrontendBranding(frontendId: string, data: BrandingConfig): Promise<BrandingConfig> {
   return request(`/admin/frontends/${frontendId}/branding`, {
     method: 'PUT',
     body: JSON.stringify(data),
   });
-}
-
-export async function getBrandingTranslationStatus(frontendId: string): Promise<{ status: string; progress: number; total: number }> {
-  return request(`/admin/frontends/${frontendId}/branding/translation-status`);
-}
-
-export async function retranslateBranding(frontendId: string): Promise<{ translation_status: string }> {
-  return request(`/admin/frontends/${frontendId}/branding/retranslate`, { method: 'POST' });
 }
 
 export async function updateFrontendNotificationEmails(frontendId: string, emails: string[]): Promise<{ emails: string[] }> {
