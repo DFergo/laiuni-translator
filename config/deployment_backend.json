@@ -1,13 +1,4 @@
 {
   "role": "backend",
-  "lm_studio_endpoint": "http://host.docker.internal:1234/v1",
-  "lm_studio_model": "qwen3-235b-a22b",
-  "ollama_endpoint": "http://host.docker.internal:11434",
-  "ollama_summariser_model": "qwen2.5:7b",
-  "ollama_num_ctx": 8192,
-  "streaming_enabled": true,
-  "stream_chunk_size": 1,
-  "poll_interval_seconds": 2,
-  "prompts_path": "./data/prompts",
-  "file_max_size_mb": 25
+  "poll_interval_seconds": 2
 }
