@@ -29,9 +29,9 @@ router = APIRouter(prefix="/admin/prompts", tags=["admin-prompts"])
 # Category mapping for UI grouping.
 # Sprint 9 (ADR-011): the document-translation *procedure* (translate_document.md)
 # is hardcoded and NOT admin-editable; only the *flavour* (persona) is editable
-# and per-frontend. translate.md remains the short UI-string prompt.
+# and per-frontend. Sprint 12 (ADR-015): the portal UI is hardcoded i18n, so the
+# UI-string prompt (translate.md) is retired — the flavour is the only editable prompt.
 CATEGORIES: dict[str, list[str]] = {
-    "UI strings": ["translate.md"],
     "Translation flavour (persona)": ["translate_flavour.md"],
 }
 

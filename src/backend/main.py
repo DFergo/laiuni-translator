@@ -23,6 +23,7 @@ from src.api.v1.admin.contacts import router as contacts_router
 from src.api.v1.admin.knowledge import router as knowledge_router
 from src.api.v1.admin.knowledge import ensure_defaults as ensure_knowledge_defaults
 from src.api.v1.admin.portability import router as portability_router
+from src.api.v1.admin.settings import router as settings_router
 from src.core.config import config
 from src.services.job_queue import init_db, scheduler_loop
 from src.services.polling import polling_loop
@@ -68,6 +69,7 @@ app.include_router(smtp_router)
 app.include_router(contacts_router)
 app.include_router(knowledge_router)
 app.include_router(portability_router)
+app.include_router(settings_router)
 
 # Admin SPA static files
 ADMIN_DIST = Path("/app/admin/dist")

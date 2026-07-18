@@ -296,7 +296,8 @@ async def process_job(job: dict[str, Any]) -> None:
             langs_done.append(lang)
             mark_progress(job_id, langs_done, len(job["target_langs"]))
 
-        expires_at = time.time() + config.retention_hours * 3600
+        from src.api.v1.admin.settings import retention_hours
+        expires_at = time.time() + retention_hours() * 3600
         mark_done(job_id, expires_at)
 
         from src.services.smtp_service import send_translation_ready
