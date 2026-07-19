@@ -5,12 +5,13 @@ import LLMTab from './LLMTab'
 import GlossaryTab from './GlossaryTab'
 import SettingsTab from './SettingsTab'
 import RegisteredUsersTab from './RegisteredUsersTab'
+import QueueTab from './QueueTab'
 
 interface Props {
   onLogout: () => void
 }
 
-const TABS = ['Frontends', 'Prompts', 'LLM', 'Glossary', 'Settings', 'Registered Users'] as const
+const TABS = ['Frontends', 'Prompts', 'LLM', 'Glossary', 'Settings', 'Registered Users', 'Queue'] as const
 type Tab = typeof TABS[number]
 
 export default function Dashboard({ onLogout }: Props) {
@@ -52,6 +53,7 @@ export default function Dashboard({ onLogout }: Props) {
         {activeTab === 'Glossary' && <GlossaryTab />}
         {activeTab === 'Settings' && <SettingsTab />}
         {activeTab === 'Registered Users' && <RegisteredUsersTab />}
+        {activeTab === 'Queue' && <QueueTab />}
       </main>
     </div>
   )

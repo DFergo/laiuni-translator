@@ -82,6 +82,24 @@ export const getAppSettings = (): Promise<AppSettings> => request('/admin/settin
 export const updateAppSettings = (data: Partial<AppSettings>): Promise<AppSettings> =>
   request('/admin/settings', { method: 'PUT', body: JSON.stringify(data) });
 
+// --- Queue management + usage log (Sprint 14) ---
+export interface QueueJob {
+  id: string; owner: string; frontend_id: string
+  status: 'running' | 'queued' | 'scheduled'
+  mode: string; priority: boolean; format: string; n_langs: number
+  created_at: number; run_at: number; position: number
+}
+export const getQueue = (): Promise<{ jobs: QueueJob[] }> => request('/admin/queue');
+export const prioritiseJob = (id: string, on: boolean): Promise<{ ok: boolean }> =>
+  request(`/admin/queue/${id}/prioritise?on=${on}`, { method: 'POST' });
+export const moveJob = (id: string, direction: 'up' | 'down'): Promise<{ ok: boolean }> =>
+  request(`/admin/queue/${id}/move?direction=${direction}`, { method: 'POST' });
+export const deleteQueueJob = (id: string): Promise<{ ok: boolean }> =>
+  request(`/admin/queue/${id}`, { method: 'DELETE' });
+
+export interface UsageRow { email: string; documents: number; languages: string[]; first_day: string; last_day: string }
+export const getUsage = (): Promise<{ usage: UsageRow[] }> => request('/admin/usage');
+
 export async function getAdminStatus(): Promise<{ setup_complete: boolean }> {
   return request('/admin/status');
 }

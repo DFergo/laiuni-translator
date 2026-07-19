@@ -87,6 +87,20 @@ def init_db() -> None:
             conn.execute("ALTER TABLE jobs ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
         if "options" not in cols:     # Sprint 15
             conn.execute("ALTER TABLE jobs ADD COLUMN options TEXT NOT NULL DEFAULT '{}'")
+        # Privacy-safe usage log (§12.9) — survives retention; counts only, never
+        # filenames or content. One row per completed job.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS usage_log (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                email        TEXT NOT NULL,
+                frontend_id  TEXT NOT NULL DEFAULT '',
+                langs        TEXT NOT NULL DEFAULT '[]',  -- JSON list of target codes
+                day          TEXT NOT NULL,               -- YYYY-MM-DD (local)
+                created_at   REAL NOT NULL
+            )
+            """
+        )
 
 
 def detect_tier(filename: str) -> str | None:
@@ -319,6 +333,81 @@ def delete(job_id: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Admin queue management (Sprint 14, §12.8) + usage log (§12.9)
+# ---------------------------------------------------------------------------
+
+_ACTIVE = ("running", "queued", "scheduled")
+
+
+def list_queue() -> list[dict[str, Any]]:
+    """Running + waiting jobs in run order: running first, then priority DESC,
+    then request time (the order the scheduler would pick them)."""
+    with _connect() as conn:
+        rows = conn.execute(
+            f"SELECT * FROM jobs WHERE status IN ({','.join('?' * len(_ACTIVE))}) "
+            "ORDER BY CASE status WHEN 'running' THEN 0 ELSE 1 END, priority DESC, created_at ASC",
+            _ACTIVE,
+        ).fetchall()
+    return [_row_to_job(r) for r in rows]
+
+
+def set_priority(job_id: str, on: bool) -> None:
+    _set(job_id, priority=1 if on else 0)
+
+
+def purge(job_id: str) -> None:
+    """Delete a job's files + row (admin removes a pending/failed job)."""
+    shutil.rmtree(_job_dir(job_id), ignore_errors=True)
+    delete(job_id)
+
+
+def move_in_queue(job_id: str, direction: str) -> None:
+    """Reorder within the waiting list by swapping request time with the adjacent
+    waiting job **in the same priority tier** (cross-tier moves are what
+    prioritise/de-prioritise are for)."""
+    waiting = [j for j in list_queue() if j["status"] in ("queued", "scheduled")]
+    idx = next((i for i, j in enumerate(waiting) if j["id"] == job_id), None)
+    if idx is None:
+        return
+    swap = idx - 1 if direction == "up" else idx + 1
+    if swap < 0 or swap >= len(waiting):
+        return
+    a, b = waiting[idx], waiting[swap]
+    if a["priority"] != b["priority"]:
+        return
+    _set(a["id"], created_at=b["created_at"])
+    _set(b["id"], created_at=a["created_at"])
+
+
+def record_usage(email: str, frontend_id: str, target_langs: list[str], now: float | None = None) -> None:
+    """Log one completed job — counts only, never filenames/content (§8/§12.9)."""
+    now = now if now is not None else time.time()
+    day = datetime.fromtimestamp(now).strftime("%Y-%m-%d")
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO usage_log (email, frontend_id, langs, day, created_at) VALUES (?,?,?,?,?)",
+            (email.lower().strip(), frontend_id, json.dumps(target_langs), day, now),
+        )
+
+
+def usage_summary() -> list[dict[str, Any]]:
+    """Per-user usage: #documents, distinct languages, first/last day."""
+    with _connect() as conn:
+        rows = conn.execute("SELECT email, langs, day FROM usage_log").fetchall()
+    agg: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        a = agg.setdefault(r["email"], {"email": r["email"], "documents": 0,
+                                        "languages": set(), "first_day": r["day"], "last_day": r["day"]})
+        a["documents"] += 1
+        a["languages"].update(json.loads(r["langs"]))
+        a["first_day"] = min(a["first_day"], r["day"])
+        a["last_day"] = max(a["last_day"], r["day"])
+    return [{"email": a["email"], "documents": a["documents"],
+             "languages": sorted(a["languages"]), "first_day": a["first_day"], "last_day": a["last_day"]}
+            for a in sorted(agg.values(), key=lambda x: x["email"])]
+
+
+# ---------------------------------------------------------------------------
 # Processing + retention + scheduler loop
 # ---------------------------------------------------------------------------
 
@@ -352,6 +441,7 @@ async def process_job(job: dict[str, Any]) -> None:
         from src.api.v1.admin.settings import retention_hours
         expires_at = time.time() + retention_hours() * 3600
         mark_done(job_id, expires_at)
+        record_usage(job["owner_email"], job.get("frontend_id", ""), job["target_langs"])  # §12.9 counts only
         logger.info(f"Job {job_id} translated — {len(outputs)} language(s), expires in {retention_hours()}h")
     except Exception as e:
         logger.error(f"Job {job_id} failed: {e}")
