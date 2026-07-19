@@ -18,7 +18,7 @@ from pydantic import BaseModel
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("sidecar")
 
-app = FastAPI(title="HRDD Frontend Sidecar", version="2.0.0")
+app = FastAPI(title="UNI Translator Frontend Sidecar", version="2.0.0")
 
 # Load deployment config (generic — behaviour now comes from the pushed
 # frontend config, not this file; kept only for the `role` marker).

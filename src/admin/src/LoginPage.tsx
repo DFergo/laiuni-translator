@@ -30,8 +30,9 @@ export default function LoginPage({ onLogin }: Props) {
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center">
       <div className="bg-white rounded-xl shadow-md border border-gray-200 p-8 w-full max-w-md">
+        <img src={`${import.meta.env.BASE_URL}uni-logo.png`} alt="UNI" className="h-10 mb-4" />
         <h2 className="text-2xl font-semibold text-gray-800 mb-2">Admin Login</h2>
-        <p className="text-gray-500 text-sm mb-6">HRDD Helper — Administration Panel</p>
+        <p className="text-gray-500 text-sm mb-6">UNI Translator — Administration Panel</p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>

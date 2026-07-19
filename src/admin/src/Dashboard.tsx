@@ -21,7 +21,10 @@ export default function Dashboard({ onLogout }: Props) {
     <div className="min-h-screen bg-gray-50">
       <header className="bg-uni-dark text-white shadow-md">
         <div className="px-6 py-4 flex items-center justify-between">
-          <h1 className="text-xl font-semibold">LAIUNI Translator — Admin Panel</h1>
+          <div className="flex items-center gap-3">
+            <img src={`${import.meta.env.BASE_URL}uni-logo.png`} alt="UNI" className="h-8 bg-white/95 rounded px-1" />
+            <h1 className="text-xl font-semibold">LAIUNI Translator — Admin Panel</h1>
+          </div>
           <button
             onClick={onLogout}
             className="text-sm bg-white/10 hover:bg-white/20 rounded-lg px-3 py-1.5 transition-colors"

@@ -116,7 +116,7 @@ export default function App() {
     <TContext.Provider value={t}>
       <div className="flex min-h-screen flex-col">
         <header className="flex items-center gap-3 border-b border-border bg-primary px-6 py-3 text-white">
-          {branding.logo_url && <img src={branding.logo_url} alt="" className="h-8" />}
+          <img src={branding.logo_url || `${import.meta.env.BASE_URL}uni-logo.png`} alt="" className="h-8 bg-white/95 rounded px-1" />
           <h1 className="text-lg font-semibold">{branding.app_title || 'LAIUNI Translator'}</h1>
         </header>
 
