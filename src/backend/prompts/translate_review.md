@@ -7,6 +7,6 @@ For **each** worklist term, everywhere it appears in the draft:
 - Deviate from the required term **only** with justification: it is part of a proper name, or the required term genuinely does not fit that context.
 - **Never invent a hybrid** — e.g. required *"movilización"* but the draft has *"movilización industrial"* → fix to *"movilización"*.
 
-Change **nothing else**: do not re-translate, restyle, add to, or remove anything else, and preserve the draft's wording, formatting, structure and blank lines exactly. If the worklist is empty or none of its terms apply, return the draft unchanged.
+Change **nothing else**: do not re-translate, restyle, add to, or remove anything else, and preserve the draft's wording, formatting, structure and blank lines exactly. Keep any formatting tags like `⟦0⟧…⟦/0⟧` exactly where they are — never add, remove, renumber, reorder, or translate them. If the worklist is empty or none of its terms apply, return the draft unchanged.
 
 Return **only** the corrected text — no notes, no commentary, no preamble, no reasoning.

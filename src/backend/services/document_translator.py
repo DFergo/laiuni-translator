@@ -108,45 +108,173 @@ def _segment(text: str, fmt: str) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
+# docx fidelity (run-level formatting preservation). We edit a *copy* of the
+# source, so structure (tables, images, lists, numbering, headings, borders,
+# hyperlinks) is preserved for free. The only thing lost by the old "dump all
+# text in run[0]" was **inline run formatting** (bold/italic/highlight/color/size)
+# when a paragraph mixed formats. So we translate each paragraph carrying inline
+# **markers** ⟦i⟧…⟦/i⟧ around each formatting span, and on recompose we put each
+# translated span back into its own run (keeping that run's full rPr). Runs that
+# carry a drawing/field are opaque (kept verbatim → inline images survive).
+_MARK_RE = re.compile(r"⟦(\d+)⟧(.*?)⟦/\1⟧", re.DOTALL)
+_XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
+
+
+def _run_text(r: Any, qn: Any) -> str:
+    return "".join(t.text or "" for t in r.findall(qn("w:t")))
+
+
+def _run_is_opaque(r: Any, qn: Any) -> bool:
+    """A run carrying an image/field/object — keep it verbatim, never translate."""
+    return any(r.find(qn(t)) is not None for t in ("w:drawing", "w:pict", "w:object", "w:fldChar"))
+
+
+def _rpr_sig(r: Any, qn: Any) -> str:
+    rpr = r.find(qn("w:rPr"))
+    return rpr.xml if rpr is not None else ""
+
+
+def _p_spans(p: Any, qn: Any) -> list[dict[str, Any]]:
+    """Ordered spans of a paragraph (direct children). Consecutive `w:r` runs with
+    the same rPr merge into one text span; a run with a drawing/field is its own
+    opaque span; each `w:hyperlink` is one translatable span (its link is kept)."""
+    spans: list[dict[str, Any]] = []
+    for child in p:
+        tag = child.tag
+        if tag == qn("w:r"):
+            if _run_is_opaque(child, qn):
+                spans.append({"kind": "opaque", "runs": [child]})
+            else:
+                sig = _rpr_sig(child, qn)
+                if spans and spans[-1]["kind"] == "text" and spans[-1]["sig"] == sig:
+                    spans[-1]["runs"].append(child)
+                else:
+                    spans.append({"kind": "text", "sig": sig, "runs": [child]})
+        elif tag == qn("w:hyperlink"):
+            spans.append({"kind": "link", "runs": child.findall(qn("w:r"))})
+    return spans
+
+
+def _span_text(span: dict[str, Any], qn: Any) -> str:
+    return "".join(_run_text(r, qn) for r in span["runs"])
+
+
+def _set_run_text(r: Any, text: str, qn: Any, OxmlElement: Any) -> None:
+    """Replace a run's textual content with one <w:t>, keeping its rPr."""
+    for tag in ("w:t", "w:br", "w:tab", "w:cr"):
+        for el in r.findall(qn(tag)):
+            r.remove(el)
+    t = OxmlElement("w:t")
+    t.set(_XML_SPACE, "preserve")
+    t.text = text
+    r.append(t)
+
+
+def _parse_markers(text: str, n: int) -> list[str] | None:
+    """Recover the n translated spans from ⟦i⟧…⟦/i⟧; None if any is missing."""
+    found: dict[int, str] = {}
+    for m in _MARK_RE.finditer(text):
+        i = int(m.group(1))
+        if 0 <= i < n and i not in found:
+            found[i] = m.group(2)
+    return [found[i] for i in range(n)] if len(found) == n else None
+
+
+def _strip_markers(text: str) -> str:
+    return re.sub(r"⟦/?\d+⟧", "", _MARK_RE.sub(lambda m: m.group(2), text))
+
+
+def _serialize_p(p: Any, qn: Any) -> tuple[str, bool]:
+    """Return (text-for-translation, translatable). One translatable span → plain
+    text; several → each wrapped in ⟦i⟧…⟦/i⟧ so formatting boundaries survive."""
+    spans = _p_spans(p, qn)
+    trans = [s for s in spans if s["kind"] in ("text", "link")]
+    texts = [_span_text(s, qn) for s in trans]
+    full = "".join(texts)
+    if not full.strip():
+        return full, False
+    if len(trans) <= 1:
+        return full, True
+    return "".join(f"⟦{i}⟧{t}⟦/{i}⟧" for i, t in enumerate(texts)), True
+
+
+def _rebuild_p(p: Any, translated: str, qn: Any, OxmlElement: Any) -> None:
+    """Put the translated text back, one run per formatting span (each keeps its
+    own rPr). If the markers came back broken, fall back to all-text-in-first-run
+    (never worse than the old behaviour)."""
+    trans = [s for s in _p_spans(p, qn) if s["kind"] in ("text", "link")]
+    if not trans:
+        return
+    if len(trans) == 1:
+        texts: list[str] = [translated]
+    else:
+        parsed = _parse_markers(translated, len(trans))
+        texts = parsed if parsed is not None else [_strip_markers(translated)] + [""] * (len(trans) - 1)
+    for span, text in zip(trans, texts):
+        runs = span["runs"]
+        if not runs:
+            continue
+        _set_run_text(runs[0], text, qn, OxmlElement)  # first run keeps rPr (and, for a link, its hyperlink)
+        for extra in runs[1:]:
+            extra.getparent().remove(extra)
+
+
 def _iter_doc_paragraphs(doc: Any) -> list[Any]:
-    """Every paragraph in a python-docx document, in a stable order (body first,
-    then table-cell paragraphs). extract + recompose walk this identically so
-    segment order lines up with paragraph order."""
-    paras = list(doc.paragraphs)
-    for table in doc.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                paras.extend(cell.paragraphs)
-    return paras
+    """Every translatable `<w:p>` element, in a stable order: body + tables (any
+    depth, via `body.iter`) then every section's headers/footers (all types).
+    extract + recompose walk this identically so segments line up. Footnotes/
+    endnotes are preserved but not yet translated (see docs/ideas.md)."""
+    from docx.oxml.ns import qn
+    ps: list[Any] = list(doc.element.body.iter(qn("w:p")))
+    hf_attrs = ("header", "footer", "first_page_header", "first_page_footer",
+                "even_page_header", "even_page_footer")
+    for section in doc.sections:
+        for attr in hf_attrs:
+            hf = getattr(section, attr, None)
+            if hf is None:
+                continue
+            try:
+                if getattr(hf, "is_linked_to_previous", False):
+                    continue
+                for para in hf.paragraphs:
+                    ps.append(para._p)
+                for tbl in hf.tables:
+                    ps.extend(tbl._tbl.iter(qn("w:p")))
+            except Exception:
+                continue
+    return ps
 
 
 def _extract_docx(p: Path) -> dict[str, Any]:
     from docx import Document
+    from docx.oxml.ns import qn
     doc = Document(str(p))
-    segments = [
-        {"text": para.text, "translate": bool(para.text.strip())}
-        for para in _iter_doc_paragraphs(doc)
-    ]
+    segments = []
+    for pel in _iter_doc_paragraphs(doc):
+        text, translate = _serialize_p(pel, qn)
+        segments.append({"text": text, "translate": translate})
     return {"format": "docx", "source_path": str(p), "segments": segments}
-
-
-def _set_paragraph_text(para: Any, text: str) -> None:
-    """Replace a paragraph's text, keeping its style (heading/list) and the first
-    run's character formatting. Minor inline-format shifts are accepted (§4.2)."""
-    if para.runs:
-        para.runs[0].text = text
-        for r in para.runs[1:]:
-            r.text = ""
-    else:
-        para.add_run(text)
 
 
 def _recompose_docx(ir: dict[str, Any], target_lang: str, out_path: str | None) -> str:
     from docx import Document
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
     doc = Document(ir["source_path"])  # fresh copy per language (no cross-lang mutation)
-    for seg, para in zip(ir["segments"], _iter_doc_paragraphs(doc)):
-        if seg["translate"]:
-            _set_paragraph_text(para, seg.get("out", {}).get(target_lang, seg["text"]))
+    for seg, pel in zip(ir["segments"], _iter_doc_paragraphs(doc)):
+        if not seg["translate"]:
+            continue
+        translated = seg.get("out", {}).get(target_lang)
+        if translated is None:
+            continue
+        try:
+            _rebuild_p(pel, translated, qn, OxmlElement)
+        except Exception as e:
+            logger.warning(f"docx paragraph rebuild failed ({e}); plain fallback")
+            try:
+                _rebuild_p(pel, _strip_markers(translated), qn, OxmlElement)
+            except Exception:
+                pass
     out_path = out_path or _default_out(ir, target_lang)
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     doc.save(out_path)
