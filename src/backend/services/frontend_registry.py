@@ -22,7 +22,7 @@ REGISTRY_FILE = FRONTENDS  # Sprint 24: config/ layout
 
 def default_config() -> dict[str, Any]:
     # Sprint 12 (ADR-015): a frontend config is just the app-language override and
-    # the auth mode. Branding (name/colour/logo) lives in branding.json; the HRDD
+    # the auth mode. Branding (name/colour/logo) lives in branding.json; the legacy
     # chat fields (profiles/auth/languages/modes/disclaimer/…) are removed.
     return {
         "configured": False,

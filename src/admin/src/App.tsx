@@ -21,14 +21,14 @@ function App() {
         return
       }
 
-      const token = localStorage.getItem('hrdd_admin_token')
+      const token = localStorage.getItem('uni_admin_token')
       if (token) {
         try {
           await verifyToken()
           setPhase('dashboard')
           return
         } catch {
-          localStorage.removeItem('hrdd_admin_token')
+          localStorage.removeItem('uni_admin_token')
         }
       }
 
@@ -39,7 +39,7 @@ function App() {
   }
 
   const handleLogout = () => {
-    localStorage.removeItem('hrdd_admin_token')
+    localStorage.removeItem('uni_admin_token')
     setPhase('login')
   }
 

@@ -444,7 +444,7 @@ async def push_auth_result(session_token: str, req: AuthResultRequest):
 # Temp storage for uploads until backend fetches them
 UPLOAD_MAX_SIZE = 25 * 1024 * 1024  # 25MB
 ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md", ".doc", ".docx", ".jpg", ".jpeg", ".png"}
-_upload_dir = Path(tempfile.mkdtemp(prefix="hrdd_uploads_"))
+_upload_dir = Path(tempfile.mkdtemp(prefix="laiuni_uploads_"))
 _upload_queue: list[dict[str, str]] = []
 _upload_queue_lock = asyncio.Lock()
 

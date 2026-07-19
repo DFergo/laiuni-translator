@@ -17,7 +17,7 @@ stay at the root too.
 import os
 from pathlib import Path
 
-DATA_DIR = Path(os.environ.get("HRDD_DATA_DIR", "/app/data"))
+DATA_DIR = Path(os.environ.get("LAIUNI_DATA_DIR", "/app/data"))
 
 # Top-level dirs
 CONFIG_DIR = DATA_DIR / "config"

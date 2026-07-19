@@ -14,7 +14,7 @@ from pydantic import BaseModel, field_validator
 router = APIRouter(prefix="/admin", tags=["admin"])
 security = HTTPBearer(auto_error=False)
 
-DATA_DIR = Path(os.environ.get("HRDD_DATA_DIR", "/app/data"))
+DATA_DIR = Path(os.environ.get("LAIUNI_DATA_DIR", "/app/data"))
 ADMIN_HASH_FILE = DATA_DIR / ".admin_hash"
 JWT_SECRET_FILE = DATA_DIR / ".jwt_secret"
 

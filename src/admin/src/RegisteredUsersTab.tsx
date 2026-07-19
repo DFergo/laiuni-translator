@@ -45,7 +45,7 @@ const EMPTY_CONTACT: Contact = {
 }
 
 function sortKey(scope: Scope): string {
-  return `hrdd_admin_users_sort_${scope}`
+  return `uni_admin_users_sort_${scope}`
 }
 
 export default function RegisteredUsersTab() {
@@ -212,7 +212,7 @@ export default function RegisteredUsersTab() {
   }
 
   const handleExport = () => {
-    const token = localStorage.getItem('hrdd_admin_token') || ''
+    const token = localStorage.getItem('uni_admin_token') || ''
     // Use fetch to inject Authorization header, then trigger download
     fetch(exportContactsURL(scope), {
       headers: token ? { Authorization: `Bearer ${token}` } : {},

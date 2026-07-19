@@ -1,6 +1,6 @@
 """Prompt-file management — global / per-frontend prompt sets (KEEP, gutted).
 
-Sprint 1 (ADR-009): the HRDD system-prompt *assembly* (core+role+case+context+
+Sprint 1 (ADR-009): the original fork's system-prompt *assembly* (core+role+case+context+
 knowledge) was removed with the chat machinery. What remains is the generic
 prompt-file registry the admin **Prompts** tab and the **Frontends** route
 depend on: mode (global / per_frontend), copy/reset, and per-frontend sets.

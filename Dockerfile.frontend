@@ -42,8 +42,8 @@ COPY config/deployment_frontend.json /app/config/deployment_frontend.json
 RUN mkdir -p /app/data
 
 # Supervisor config to run both Nginx and sidecar
-COPY config/supervisord.conf /etc/supervisor/conf.d/hrdd.conf
+COPY config/supervisord.conf /etc/supervisor/conf.d/laiuni.conf
 
 EXPOSE 80
 
-CMD ["supervisord", "-n", "-c", "/etc/supervisor/conf.d/hrdd.conf"]
+CMD ["supervisord", "-n", "-c", "/etc/supervisor/conf.d/laiuni.conf"]

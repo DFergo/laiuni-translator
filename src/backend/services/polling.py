@@ -7,8 +7,8 @@ no inbound connections from the public internet — it initiates every connectio
 outbound.
 
 Sprint 1 scope: frontend status polling + auth-request handling (magic-code
-against the whitelist) + branding push. The HRDD chat/evidence/RAG/guardrail
-message processing has been stripped. Translation-job handling is added on this
+against the whitelist) + branding push. The original fork's chat/evidence/RAG/
+guardrail message processing has been stripped. Translation-job handling is added on this
 same channel in Sprints 4–5.
 """
 

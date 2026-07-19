@@ -1,7 +1,7 @@
 const API_BASE = '';
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const token = localStorage.getItem('hrdd_admin_token');
+  const token = localStorage.getItem('uni_admin_token');
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -18,7 +18,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 async function downloadZip(path: string, filename: string): Promise<void> {
-  const token = localStorage.getItem('hrdd_admin_token');
+  const token = localStorage.getItem('uni_admin_token');
   const res = await fetch(`${API_BASE}${path}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
   if (!res.ok) throw new Error(`Export failed (HTTP ${res.status})`);
   const blob = await res.blob();
@@ -29,7 +29,7 @@ async function downloadZip(path: string, filename: string): Promise<void> {
 }
 
 async function uploadZip<T>(path: string, file: File): Promise<T> {
-  const token = localStorage.getItem('hrdd_admin_token');
+  const token = localStorage.getItem('uni_admin_token');
   const form = new FormData();
   form.append('file', file);
   const res = await fetch(`${API_BASE}${path}`, {
@@ -515,7 +515,7 @@ export async function importContacts(
   file: File,
   scope: string
 ): Promise<{ added: number; updated: number; ignored_malformed: number; scope: string }> {
-  const token = localStorage.getItem('hrdd_admin_token')
+  const token = localStorage.getItem('uni_admin_token')
   const formData = new FormData()
   formData.append('file', file)
   const res = await fetch(`/admin/contacts/import?scope=${encodeURIComponent(scope)}`, {

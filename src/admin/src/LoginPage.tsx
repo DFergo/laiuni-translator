@@ -18,7 +18,7 @@ export default function LoginPage({ onLogin }: Props) {
 
     try {
       const { token } = await loginAdmin(password, rememberMe)
-      localStorage.setItem('hrdd_admin_token', token)
+      localStorage.setItem('uni_admin_token', token)
       onLogin(token)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed')

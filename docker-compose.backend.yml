@@ -1,5 +1,5 @@
 services:
-  hrdd-backend:
+  laiuni-backend:
     build:
       context: .
       dockerfile: Dockerfile.backend
@@ -11,12 +11,12 @@ services:
     volumes:
       # DATA_DIR = /app/data (Sprint 24 layout: config/, sessions/, campaigns/, deleted/).
       # Named volume (default — VPS/headless):
-      - hrdd-data:/app/data
+      - laiuni-data:/app/data
       # Bind mount alternative (local machine — files editable "a mano" in Finder):
       # comment the line above and use e.g.
-      #   - /Users/you/hrdd-data:/app/data
+      #   - /Users/you/laiuni-data:/app/data
     environment:
       - DEPLOYMENT_JSON_PATH=/app/config/deployment_backend.json
 
 volumes:
-  hrdd-data:
+  laiuni-data:
