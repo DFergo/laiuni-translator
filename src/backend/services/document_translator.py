@@ -317,33 +317,97 @@ def _iter_pptx_paragraphs(prs: Any) -> list[Any]:
     return paras
 
 
-def _set_run_paragraph_text(para: Any, text: str) -> None:
-    """Replace a run-based paragraph's text (docx/pptx share this shape): keep the
-    first run's formatting, blank the rest; add a run if there were none."""
-    if para.runs:
-        para.runs[0].text = text
-        for r in para.runs[1:]:
-            r.text = ""
+# pptx run-fidelity (ADR-018) — the docx approach ported to DrawingML (a:p/a:r).
+# Simpler than docx: no hyperlink/drawing runs inside a text paragraph (images are
+# separate shapes). Group a:r runs by a:rPr, mark spans, rebuild keeping each rPr.
+
+def _pptx_run_text(r: Any, qn: Any) -> str:
+    t = r.find(qn("a:t"))
+    return (t.text or "") if t is not None else ""
+
+
+def _pptx_rpr_sig(r: Any, qn: Any) -> Any:
+    from lxml import etree
+    rpr = r.find(qn("a:rPr"))
+    return etree.tostring(rpr) if rpr is not None else b""
+
+
+def _pptx_p_spans(p_el: Any, qn: Any) -> list[dict[str, Any]]:
+    spans: list[dict[str, Any]] = []
+    for r in p_el.findall(qn("a:r")):
+        sig = _pptx_rpr_sig(r, qn)
+        if spans and spans[-1]["sig"] == sig:
+            spans[-1]["runs"].append(r)
+        else:
+            spans.append({"sig": sig, "runs": [r]})
+    return spans
+
+
+def _pptx_set_run_text(r: Any, text: str, qn: Any) -> None:
+    t = r.find(qn("a:t"))
+    if t is None:
+        from lxml import etree
+        t = etree.SubElement(r, qn("a:t"))
+    t.text = text
+
+
+def _pptx_serialize_p(para: Any, qn: Any) -> tuple[str, bool]:
+    spans = _pptx_p_spans(para._p, qn)
+    texts = ["".join(_pptx_run_text(r, qn) for r in s["runs"]) for s in spans]
+    full = "".join(texts)
+    if not full.strip():
+        return full, False
+    if len(spans) <= 1:
+        return full, True
+    return "".join(f"⟦{i}⟧{t}⟦/{i}⟧" for i, t in enumerate(texts)), True
+
+
+def _pptx_rebuild_p(para: Any, translated: str, qn: Any) -> None:
+    spans = _pptx_p_spans(para._p, qn)
+    if not spans:
+        para.text = _strip_markers(translated)  # python-pptx replaces runs with one
+        return
+    if len(spans) == 1:
+        texts: list[str] = [translated]
     else:
-        para.add_run().text = text
+        parsed = _parse_markers(translated, len(spans))
+        texts = parsed if parsed is not None else [_strip_markers(translated)] + [""] * (len(spans) - 1)
+    for span, text in zip(spans, texts):
+        runs = span["runs"]
+        _pptx_set_run_text(runs[0], text, qn)
+        for extra in runs[1:]:
+            extra.getparent().remove(extra)
 
 
 def _extract_pptx(p: Path) -> dict[str, Any]:
     from pptx import Presentation
+    from pptx.oxml.ns import qn
     prs = Presentation(str(p))
-    segments = [
-        {"text": para.text, "translate": bool(para.text.strip())}
-        for para in _iter_pptx_paragraphs(prs)
-    ]
+    segments = []
+    for para in _iter_pptx_paragraphs(prs):
+        text, translate = _pptx_serialize_p(para, qn)
+        segments.append({"text": text, "translate": translate})
     return {"format": "pptx", "source_path": str(p), "segments": segments}
 
 
 def _recompose_pptx(ir: dict[str, Any], target_lang: str, out_path: str | None) -> str:
     from pptx import Presentation
+    from pptx.oxml.ns import qn
     prs = Presentation(ir["source_path"])  # fresh per language
     for seg, para in zip(ir["segments"], _iter_pptx_paragraphs(prs)):
-        if seg["translate"]:
-            _set_run_paragraph_text(para, seg.get("out", {}).get(target_lang, seg["text"]))
+        if not seg["translate"]:
+            continue
+        translated = seg.get("out", {}).get(target_lang)
+        if translated is None:
+            continue
+        try:
+            _pptx_rebuild_p(para, translated, qn)
+        except Exception as e:
+            logger.warning(f"pptx paragraph rebuild failed ({e}); plain fallback")
+            try:
+                para.text = _strip_markers(translated)
+            except Exception:
+                pass
     out_path = out_path or _default_out(ir, target_lang)
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     prs.save(out_path)
