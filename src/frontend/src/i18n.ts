@@ -19,7 +19,7 @@ export type Key =
   | 'portal.start' | 'portal.submitting' | 'portal.errSubmit' | 'portal.errRejected'
   | 'upload.drop' | 'upload.tier1' | 'upload.tier2' | 'upload.tier3' | 'upload.unsupported'
   | 'lang.source' | 'lang.targets'
-  | 'opt.footnotes' | 'opt.speakerNotes'
+  | 'opt.footnotes' | 'opt.speakerNotes' | 'opt.contextual'
   | 'status.title' | 'status.intro' | 'status.estimated' | 'status.progress'
   | 'status.scheduledAt' | 'status.failed'
   | 'status.queued' | 'status.scheduledLabel' | 'status.running' | 'status.done' | 'status.pending'
@@ -68,6 +68,7 @@ const en: Dict = {
   'lang.targets': 'Target languages ({n} selected)',
   'opt.footnotes': 'Translate footnotes and endnotes',
   'opt.speakerNotes': 'Translate speaker notes',
+  'opt.contextual': 'Read the document first for better context',
   'status.title': 'Your translation',
   'status.intro': 'You can leave this page — the result is emailed when ready.',
   'status.estimated': 'Estimated {t}',

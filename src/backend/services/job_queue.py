@@ -342,7 +342,7 @@ async def process_job(job: dict[str, Any]) -> None:
         outputs: list[Path] = []
         for lang in job["target_langs"]:
             await translate(ir, job["source_lang"], [lang], job["glossary"],
-                            frontend_id=job.get("frontend_id", ""))
+                            frontend_id=job.get("frontend_id", ""), options=job.get("options") or {})
             out_path = out_dir / f"{src.stem}.{lang}{src.suffix}"
             recompose(ir, lang, str(out_path))
             outputs.append(out_path)

@@ -61,6 +61,7 @@ export const LOCALES: Partial<Record<Lang, Partial<Record<Key, string>>>> = {
     'done.errExpired': 'لم يعد هذا التنزيل متاحاً (ربما انتهت صلاحيته).',
     'opt.footnotes': 'ترجمة الحواشي والتعليقات الختامية',
     'opt.speakerNotes': 'ترجمة ملاحظات المُقدِّم',
+    'opt.contextual': 'اقرأ المستند أولاً لسياق أفضل',
     'footer': '© 2026 UNI Global Union',
   },
   de: {
@@ -119,6 +120,7 @@ export const LOCALES: Partial<Record<Lang, Partial<Record<Key, string>>>> = {
     'done.errExpired': 'Dieser Download ist nicht mehr verfügbar (er ist möglicherweise abgelaufen).',
     'opt.footnotes': 'Fuß- und Endnoten übersetzen',
     'opt.speakerNotes': 'Referentennotizen übersetzen',
+    'opt.contextual': 'Dokument zuerst lesen für besseren Kontext',
     'footer': '© 2026 UNI Global Union',
   },
   es: {
@@ -177,6 +179,7 @@ export const LOCALES: Partial<Record<Lang, Partial<Record<Key, string>>>> = {
     'done.errExpired': 'Esta descarga ya no está disponible (puede haber expirado).',
     'opt.footnotes': 'Traducir notas al pie y notas finales',
     'opt.speakerNotes': 'Traducir notas del presentador',
+    'opt.contextual': 'Leer el documento primero para más contexto',
     'footer': '© 2026 UNI Global Union',
   },
   fr: {
@@ -235,6 +238,7 @@ export const LOCALES: Partial<Record<Lang, Partial<Record<Key, string>>>> = {
     'done.errExpired': "Ce téléchargement n'est plus disponible (il a peut-être expiré).",
     'opt.footnotes': 'Traduire les notes de bas de page et de fin',
     'opt.speakerNotes': "Traduire les notes de l'intervenant",
+    'opt.contextual': 'Lire d\'abord le document pour un meilleur contexte',
     'footer': '© 2026 UNI Global Union',
   },
   hi: {
@@ -293,6 +297,7 @@ export const LOCALES: Partial<Record<Lang, Partial<Record<Key, string>>>> = {
     'done.errExpired': 'यह डाउनलोड अब उपलब्ध नहीं है (शायद समयसीमा समाप्त हो गई)।',
     'opt.footnotes': 'फ़ुटनोट और एंडनोट अनुवाद करें',
     'opt.speakerNotes': 'प्रस्तुतकर्ता नोट्स अनुवाद करें',
+    'opt.contextual': 'बेहतर संदर्भ के लिए पहले दस्तावेज़ पढ़ें',
     'footer': '© 2026 UNI Global Union',
   },
   hr: {
@@ -351,6 +356,7 @@ export const LOCALES: Partial<Record<Lang, Partial<Record<Key, string>>>> = {
     'done.errExpired': 'Ovo preuzimanje više nije dostupno (možda je isteklo).',
     'opt.footnotes': 'Prevedi fusnote i završne bilješke',
     'opt.speakerNotes': 'Prevedi bilješke izlagača',
+    'opt.contextual': 'Prvo pročitaj dokument za bolji kontekst',
     'footer': '© 2026 UNI Global Union',
   },
   id: {
@@ -409,6 +415,7 @@ export const LOCALES: Partial<Record<Lang, Partial<Record<Key, string>>>> = {
     'done.errExpired': 'Unduhan ini sudah tidak tersedia (mungkin telah kedaluwarsa).',
     'opt.footnotes': 'Terjemahkan catatan kaki dan catatan akhir',
     'opt.speakerNotes': 'Terjemahkan catatan pembicara',
+    'opt.contextual': 'Baca dokumen dulu untuk konteks yang lebih baik',
     'footer': '© 2026 UNI Global Union',
   },
   it: {
@@ -467,6 +474,7 @@ export const LOCALES: Partial<Record<Lang, Partial<Record<Key, string>>>> = {
     'done.errExpired': 'Questo download non è più disponibile (potrebbe essere scaduto).',
     'opt.footnotes': 'Tradurre note a piè di pagina e di chiusura',
     'opt.speakerNotes': 'Tradurre le note del relatore',
+    'opt.contextual': 'Leggere prima il documento per un contesto migliore',
     'footer': '© 2026 UNI Global Union',
   },
   ja: {
@@ -525,6 +533,7 @@ export const LOCALES: Partial<Record<Lang, Partial<Record<Key, string>>>> = {
     'done.errExpired': 'このダウンロードはもう利用できません（期限切れの可能性があります）。',
     'opt.footnotes': '脚注と文末脚注を翻訳する',
     'opt.speakerNotes': '発表者ノートを翻訳する',
+    'opt.contextual': 'より正確な文脈のため先に文書を読む',
     'footer': '© 2026 UNI Global Union',
   },
   ne: {
@@ -583,6 +592,7 @@ export const LOCALES: Partial<Record<Lang, Partial<Record<Key, string>>>> = {
     'done.errExpired': 'यो डाउनलोड अब उपलब्ध छैन (म्याद सकिएको हुन सक्छ)।',
     'opt.footnotes': 'फुटनोट र एन्डनोट अनुवाद गर्नुहोस्',
     'opt.speakerNotes': 'प्रस्तुतकर्ताका टिप्पणी अनुवाद गर्नुहोस्',
+    'opt.contextual': 'राम्रो सन्दर्भका लागि पहिले कागजात पढ्नुहोस्',
     'footer': '© 2026 UNI Global Union',
   },
   nl: {
@@ -641,6 +651,7 @@ export const LOCALES: Partial<Record<Lang, Partial<Record<Key, string>>>> = {
     'done.errExpired': 'Deze download is niet meer beschikbaar (mogelijk verlopen).',
     'opt.footnotes': 'Voet- en eindnoten vertalen',
     'opt.speakerNotes': 'Sprekersnotities vertalen',
+    'opt.contextual': 'Lees eerst het document voor betere context',
     'footer': '© 2026 UNI Global Union',
   },
   pl: {
@@ -699,6 +710,7 @@ export const LOCALES: Partial<Record<Lang, Partial<Record<Key, string>>>> = {
     'done.errExpired': 'To pobieranie jest już niedostępne (mogło wygasnąć).',
     'opt.footnotes': 'Tłumacz przypisy dolne i końcowe',
     'opt.speakerNotes': 'Tłumacz notatki prezentera',
+    'opt.contextual': 'Najpierw przeczytaj dokument dla lepszego kontekstu',
     'footer': '© 2026 UNI Global Union',
   },
   pt: {
@@ -757,6 +769,7 @@ export const LOCALES: Partial<Record<Lang, Partial<Record<Key, string>>>> = {
     'done.errExpired': 'Esta transferência já não está disponível (pode ter expirado).',
     'opt.footnotes': 'Traduzir notas de rodapé e finais',
     'opt.speakerNotes': 'Traduzir notas do apresentador',
+    'opt.contextual': 'Ler o documento primeiro para melhor contexto',
     'footer': '© 2026 UNI Global Union',
   },
   sv: {
@@ -815,6 +828,7 @@ export const LOCALES: Partial<Record<Lang, Partial<Record<Key, string>>>> = {
     'done.errExpired': 'Den här nedladdningen är inte längre tillgänglig (den kan ha gått ut).',
     'opt.footnotes': 'Översätt fot- och slutnoter',
     'opt.speakerNotes': 'Översätt talaranteckningar',
+    'opt.contextual': 'Läs dokumentet först för bättre sammanhang',
     'footer': '© 2026 UNI Global Union',
   },
   th: {
@@ -873,6 +887,7 @@ export const LOCALES: Partial<Record<Lang, Partial<Record<Key, string>>>> = {
     'done.errExpired': 'การดาวน์โหลดนี้ไม่พร้อมใช้งานแล้ว (อาจหมดอายุแล้ว)',
     'opt.footnotes': 'แปลเชิงอรรถและอ้างอิงท้ายเรื่อง',
     'opt.speakerNotes': 'แปลบันทึกของผู้บรรยาย',
+    'opt.contextual': 'อ่านเอกสารก่อนเพื่อบริบทที่ดีขึ้น',
     'footer': '© 2026 UNI Global Union',
   },
   ur: {
@@ -931,6 +946,7 @@ export const LOCALES: Partial<Record<Lang, Partial<Record<Key, string>>>> = {
     'done.errExpired': 'یہ ڈاؤن لوڈ اب دستیاب نہیں (شاید میعاد ختم ہو گئی)۔',
     'opt.footnotes': 'فوٹ نوٹس اور اینڈ نوٹس ترجمہ کریں',
     'opt.speakerNotes': 'پریزینٹر نوٹس ترجمہ کریں',
+    'opt.contextual': 'بہتر سیاق کے لیے پہلے دستاویز پڑھیں',
     'footer': '© 2026 UNI Global Union',
   },
 }

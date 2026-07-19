@@ -30,7 +30,7 @@ from typing import Any
 
 from src.api.v1.admin.llm import (
     get_llm_settings, load_document_translation_prompt, load_plain_translation_prompt,
-    load_document_flavour, load_review_prompt,
+    load_document_flavour, load_review_prompt, load_context_prompt,
 )
 from src.core.config import config
 from src.core.languages import language_name
@@ -596,6 +596,26 @@ def _split_trailing_newlines(text: str) -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 
+async def _reading_pass(ir: dict[str, Any], source_name: str, chain: list[dict[str, Any]]) -> str:
+    """§13.3 — one reading pass over a structure-native document to produce a
+    neutral context brief, cached on the IR (computed once, reused per language)."""
+    text = "\n".join(_strip_markers(s["text"]) for s in ir["segments"] if s["translate"])
+    text = text[: config.translation_input_budget_chars]
+    if not text.strip():
+        return ""
+    try:
+        brief = _strip_think(await llm.chat_with_fallback(
+            [{"role": "system", "content": load_context_prompt()},
+             {"role": "user", "content": f"Source language: {source_name}.\n\n--- Document ---\n{text}"}],
+            chain,
+        ))
+        logger.info("Reading pass produced a document-context brief")
+        return brief.strip()
+    except Exception as e:
+        logger.warning(f"reading pass failed (translating without a context brief): {e}")
+        return ""
+
+
 async def translate(
     ir: dict[str, Any],
     source_lang: str,
@@ -604,10 +624,12 @@ async def translate(
     connection_id: str | None = None,
     model: str | None = None,
     frontend_id: str = "",
+    options: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Translate ``ir`` into each target language, dispatching by path (ADR-014):
     text-native docs (md/txt/rtf) whole-document per language; structure-native
     docs (docx/pptx) per structural unit as plain text. Mutates and returns ``ir``."""
+    options = options or {}
     chain = _resolve_chain(connection_id, model, frontend_id)
     if not chain or not chain[0].get("connection_id"):
         raise ValueError("no translation connection resolved (register one / set the translation slot)")
@@ -625,12 +647,20 @@ async def translate(
         glossary_terms=glossary_terms, chain=chain, source_name=source_name,
         review_prompt=load_review_prompt(),  # pass-2 procedure — no flavour, blind to pass 1
     )
-    if "text" in ir:  # Path A — text-native: whole document, markdown-aware
+    if "text" in ir:  # Path A — text-native: whole document, markdown-aware (already full context)
         await _translate_text_native(
             ir, system_prompt=load_document_translation_prompt() + flavour_block, **common)
     else:  # Path B — structure-native: per unit, plain text
+        # Contextual translation (§13.3, default on): a reading pass gives the
+        # per-unit calls the whole-document gist. Computed once, cached on the IR.
+        context_block = ""
+        if options.get("contextual", True):
+            if "_context" not in ir:
+                ir["_context"] = await _reading_pass(ir, source_name, chain)
+            if ir.get("_context"):
+                context_block = f"\n\n## Document context (for disambiguating short strings)\n\n{ir['_context']}"
         await _translate_structural(
-            ir, system_prompt=load_plain_translation_prompt() + flavour_block, **common)
+            ir, system_prompt=load_plain_translation_prompt() + flavour_block + context_block, **common)
     return ir
 
 

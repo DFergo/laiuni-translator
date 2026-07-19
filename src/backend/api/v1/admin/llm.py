@@ -373,6 +373,10 @@ _PLAIN_TRANSLATE_PROMPT_BUNDLED = Path(__file__).parent.parent.parent.parent / "
 _REVIEW_PROMPT_PATH = PROMPTS_DIR / "translate_review.md"
 _REVIEW_PROMPT_BUNDLED = Path(__file__).parent.parent.parent.parent / "prompts" / "translate_review.md"
 
+# Reading-pass procedure (§13.3) — emits a neutral document-context brief.
+_CONTEXT_PROMPT_PATH = PROMPTS_DIR / "translate_context.md"
+_CONTEXT_PROMPT_BUNDLED = Path(__file__).parent.parent.parent.parent / "prompts" / "translate_context.md"
+
 
 def load_translation_prompt() -> str:
     """Effective translation prompt: disk override if present, else bundled default."""
@@ -424,6 +428,20 @@ def load_review_prompt() -> str:
     return ("You are a terminology reviewer. Given a draft translation and a worklist of "
             "`source term → required target term`, correct each term in the draft, integrated "
             "grammatically, and change nothing else. Return only the corrected text.")
+
+
+def load_context_prompt() -> str:
+    """The reading-pass procedure (§13.3) — a neutral document-context brief. Disk override, else bundled."""
+    if _CONTEXT_PROMPT_PATH.exists():
+        try:
+            return _CONTEXT_PROMPT_PATH.read_text()
+        except OSError:
+            pass
+    if _CONTEXT_PROMPT_BUNDLED.exists():
+        return _CONTEXT_PROMPT_BUNDLED.read_text()
+    return ("Read the document and write a short, neutral, descriptive brief (2-4 sentences) — what it is, "
+            "its purpose, audience, and recurring terms — to help a translator with short out-of-context "
+            "fragments. Be strictly descriptive; add no stance. Output only the brief.")
 
 
 # Editable per-frontend FLAVOUR block (persona) injected into the procedure (ADR-011).

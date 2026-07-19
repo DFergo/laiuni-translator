@@ -30,8 +30,10 @@ export function PortalForm({
   // Per-job document options (§13.2) — shown only for the relevant format.
   const [translateFootnotes, setTranslateFootnotes] = useState(true)   // docx, default ON
   const [translateSpeakerNotes, setTranslateSpeakerNotes] = useState(false)  // pptx, default OFF
+  const [contextual, setContextual] = useState(true)   // docx/pptx, default ON
 
   const ext = file ? file.name.slice(file.name.lastIndexOf('.')).toLowerCase() : ''
+  const isStructured = ext === '.docx' || ext === '.pptx'
   const blocked = file ? tierInfo(file.name, formats).blocked : false
   const canSubmit = !!file && !blocked && targets.size > 0 && !busy
 
@@ -63,6 +65,13 @@ export function PortalForm({
             <input type="checkbox" checked={translateSpeakerNotes} onChange={(e) => setTranslateSpeakerNotes(e.target.checked)}
               className="h-4 w-4 rounded border-border accent-accent" />
             {t('opt.speakerNotes')}
+          </label>
+        )}
+        {isStructured && (
+          <label className="flex items-center gap-2 text-sm text-text-primary">
+            <input type="checkbox" checked={contextual} onChange={(e) => setContextual(e.target.checked)}
+              className="h-4 w-4 rounded border-border accent-accent" />
+            {t('opt.contextual')}
           </label>
         )}
 
@@ -127,7 +136,7 @@ export function PortalForm({
           onClick={() =>
             file && onSubmit({
               file, sourceLang: source, targetLangs: [...targets], glossary, mode,
-              options: { translate_footnotes: translateFootnotes, translate_speaker_notes: translateSpeakerNotes },
+              options: { translate_footnotes: translateFootnotes, translate_speaker_notes: translateSpeakerNotes, contextual },
             })
           }
         >
