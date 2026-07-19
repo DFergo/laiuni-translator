@@ -97,10 +97,18 @@ class OpenAIAdapter:
             body["temperature"] = temperature
         if max_tokens is not None:
             body["max_tokens"] = max_tokens
-        # Sprint 9 (ADR-010): disable the model's reasoning pass (Qwen/oMLX) to cut
-        # latency + tokens. Passthrough only for openai-compatible endpoints.
+        # Reasoning control differs per model family — there is no universal flag.
+        # Qwen uses chat_template_kwargs.enable_thinking; Mistral uses reasoning_effort;
+        # Gemma & others have no switch (sending Qwen's kwarg can break their chat
+        # template). Gate by model name so "thinking off" works across models and
+        # never breaks a model that lacks the switch.
         if enable_thinking is not None:
-            body["chat_template_kwargs"] = {"enable_thinking": enable_thinking}
+            ml = (model or "").lower()
+            if "qwen" in ml:
+                body["chat_template_kwargs"] = {"enable_thinking": enable_thinking}
+            elif not enable_thinking and any(m in ml for m in ("mistral", "magistral", "ministral")):
+                body["reasoning_effort"] = "none"
+            # gemma / unknown: no reasoning switch → send nothing
         url = f"{conn['base_url'].rstrip('/')}/chat/completions"
         async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
             async with client.stream("POST", url, json=body, headers=self._headers(conn)) as resp:

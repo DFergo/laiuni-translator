@@ -15,9 +15,14 @@ class BackendConfig(BaseModel):
     scheduling_enabled: bool = True        # disable → "scheduled" mode runs immediately
     retention_hours: int = 48              # delete files + row this long after done
     job_scheduler_interval_seconds: int = 30
-    # Sprint 11 (ADR-014): text-native docs translate whole-document per language;
-    # split into top-level-block chunks only when the source exceeds this many chars.
+    # Sprint 11 (ADR-014): caps the text fed to the reading pass that builds the
+    # document-context brief (§13.3).
     translation_input_budget_chars: int = 12000
+    # Sprint 16 (ADR-019): text-native (Path A) soft chunking target. The document is
+    # split at heading boundaries to keep each chunk under this many chars (block-boundary
+    # fallback for an oversized section, never mid-paragraph). Smaller, semantically closed
+    # chunks avoid the early-EOS truncation that whole-document single calls hit.
+    translation_chunk_target_chars: int = 6000
     supported_formats: dict[str, list[str]] = {
         "tier1": [".txt", ".md", ".markdown"],
         "tier2": [".docx", ".rtf"],

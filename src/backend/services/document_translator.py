@@ -50,6 +50,27 @@ def _strip_think(text: str) -> str:
     return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
 
 
+# Completeness guard (queso-suizo bug): the model occasionally returns an empty or
+# early-EOS'd unit — empty after <think> stripping, a premature stop, or a chunk lost
+# to model eviction. Nothing used to check, so the hole was silently concatenated and
+# emailed. We now retry, and fail the job loudly rather than ship a truncated document.
+_TRANSLATION_MAX_ATTEMPTS = 3
+_MIN_OUTPUT_RATIO = 0.4       # a prose unit shorter than this fraction of its source is truncated/empty
+_MIN_GUARDED_CHARS = 200      # don't length-check tiny units (short paragraphs, headings, cells)
+
+
+def _looks_truncated(core: str, out: str) -> bool:
+    """True if a translation is empty or suspiciously shorter than its source — the
+    signature of an emptied/early-stopped unit that must NOT be shipped silently.
+    Only length-checks non-trivial units, so short structural paragraphs (which can
+    legitimately compress) never false-positive."""
+    stripped = out.strip()
+    if not stripped:
+        return True
+    src = core.strip()
+    return len(src) >= _MIN_GUARDED_CHARS and len(stripped) < _MIN_OUTPUT_RATIO * len(src)
+
+
 # ---------------------------------------------------------------------------
 # Segmentation (Tier 1: txt / md) — loss-less
 # ---------------------------------------------------------------------------
@@ -504,7 +525,11 @@ def _engine_config(
         "temperature": 0.1 if temp is None else temp,
         "max_tokens": settings.get("translation_max_tokens"),
         "num_ctx": settings.get("translation_num_ctx"),
-        "enable_thinking": settings.get("translation_enable_thinking"),
+        # Hardcoded OFF for translation (not admin-configurable): a reasoning pass
+        # drains the output-token budget and — when the visible answer returns empty
+        # after <think> stripping — silently blanks a chunk (the "queso-suizo" bug).
+        # The adapter maps this intent to each model family's switch.
+        "enable_thinking": False,
         "_slot_name": "engine",
     }
 
@@ -517,6 +542,38 @@ def _resolve_chain(
 
 
 async def _translate_unit(
+    core: str,
+    *,
+    source_name: str,
+    target_name: str,
+    ctx_before: str,
+    ctx_after: str,
+    sliced: list[dict[str, str]],
+    system_prompt: str,
+    review_prompt: str,
+    chain: list[dict[str, Any]],
+) -> str:
+    """Translate one unit with a completeness guard: retry when the result comes
+    back empty/truncated, and fail loudly rather than ship a hole (queso-suizo bug)."""
+    last = ""
+    for attempt in range(1, _TRANSLATION_MAX_ATTEMPTS + 1):
+        last = await _translate_unit_once(
+            core, source_name=source_name, target_name=target_name,
+            ctx_before=ctx_before, ctx_after=ctx_after, sliced=sliced,
+            system_prompt=system_prompt, review_prompt=review_prompt, chain=chain)
+        if not _looks_truncated(core, last):
+            return last
+        logger.warning(
+            f"Translation → {target_name} looks incomplete "
+            f"({len(last.strip())} vs {len(core.strip())} src chars), "
+            f"attempt {attempt}/{_TRANSLATION_MAX_ATTEMPTS} — retrying")
+    raise ValueError(
+        f"Translation → {target_name} still incomplete after {_TRANSLATION_MAX_ATTEMPTS} "
+        f"attempts ({len(last.strip())} vs {len(core.strip())} src chars); failing the job "
+        f"rather than emailing a truncated document")
+
+
+async def _translate_unit_once(
     core: str,
     *,
     source_name: str,
@@ -567,16 +624,28 @@ async def _translate_unit(
     ))
 
 
-def _chunk_text(text: str, budget: int) -> list[str]:
-    """Split a text-native document into chunks ≤ ``budget`` chars at top-level
-    block boundaries (blank-line runs). Loss-less: ``"".join(chunks) == text``.
-    Used only when the whole document exceeds the model input budget (§11.5)."""
-    if len(text) <= budget:
+def _is_heading(seg: dict[str, Any]) -> bool:
+    """A translatable segment whose first line opens a markdown heading (``#``)."""
+    return bool(seg["translate"]) and seg["text"].lstrip().startswith("#")
+
+
+def _chunk_text(text: str, target: int) -> list[str]:
+    """Split a text-native document into chunks near ``target`` chars, cutting at
+    **heading boundaries** (§11.5, ADR-019). A running chunk is closed when the next
+    section (heading) would push it past the target, so each chunk starts at a heading
+    and stays a semantically-closed unit. An oversized single section (no inner heading)
+    falls back to cutting at block boundaries once the chunk reaches the target — never
+    mid-paragraph. Loss-less: ``"".join(chunks) == text``."""
+    if len(text) <= target:
         return [text]
     chunks: list[str] = []
     cur = ""
     for seg in _segment(text, "md"):
-        if seg["translate"] and cur and len(cur) + len(seg["text"]) > budget:
+        starts_block = bool(seg["translate"])  # a translatable run begins a block
+        would_overflow = bool(cur) and len(cur) + len(seg["text"]) > target
+        # Cut before a heading that would overflow (preferred), or before any block
+        # once the running chunk already reached the target (oversized-section fallback).
+        if starts_block and would_overflow and (_is_heading(seg) or len(cur) >= target):
             chunks.append(cur)
             cur = ""
         cur += seg["text"]
@@ -597,9 +666,13 @@ def _split_trailing_newlines(text: str) -> tuple[str, str]:
 
 
 async def _reading_pass(ir: dict[str, Any], source_name: str, chain: list[dict[str, Any]]) -> str:
-    """§13.3 — one reading pass over a structure-native document to produce a
-    neutral context brief, cached on the IR (computed once, reused per language)."""
-    text = "\n".join(_strip_markers(s["text"]) for s in ir["segments"] if s["translate"])
+    """§13.3 — one reading pass over the document to produce a neutral context brief,
+    cached on the IR (computed once, reused per language). Reads the whole text for a
+    text-native doc (Path A, when chunked) or the joined translatable segments (Path B)."""
+    if "text" in ir:
+        text = ir["text"]
+    else:
+        text = "\n".join(_strip_markers(s["text"]) for s in ir["segments"] if s["translate"])
     text = text[: config.translation_input_budget_chars]
     if not text.strip():
         return ""
@@ -647,9 +720,17 @@ async def translate(
         glossary_terms=glossary_terms, chain=chain, source_name=source_name,
         review_prompt=load_review_prompt(),  # pass-2 procedure — no flavour, blind to pass 1
     )
-    if "text" in ir:  # Path A — text-native: whole document, markdown-aware (already full context)
+    if "text" in ir:  # Path A — text-native: markdown-aware, heading-chunked (§11.5)
+        # Once Path A is chunked, each chunk loses whole-document context, so inject the
+        # same neutral §13.3 brief. An unchunked document is one call with full context.
+        context_block = ""
+        if options.get("contextual", True) and len(ir["text"]) > config.translation_chunk_target_chars:
+            if "_context" not in ir:
+                ir["_context"] = await _reading_pass(ir, source_name, chain)
+            if ir.get("_context"):
+                context_block = f"\n\n## Document context (for cross-chunk coherence)\n\n{ir['_context']}"
         await _translate_text_native(
-            ir, system_prompt=load_document_translation_prompt() + flavour_block, **common)
+            ir, system_prompt=load_document_translation_prompt() + flavour_block + context_block, **common)
     else:  # Path B — structure-native: per unit, plain text
         # Contextual translation (§13.3, default on): a reading pass gives the
         # per-unit calls the whole-document gist. Computed once, cached on the IR.
@@ -675,7 +756,7 @@ async def _translate_text_native(
 ) -> None:
     """Path A: translate the whole document per language in one call (two-pass);
     split into top-level-block chunks only when the source exceeds the budget."""
-    chunks = _chunk_text(ir["text"], config.translation_input_budget_chars)
+    chunks = _chunk_text(ir["text"], config.translation_chunk_target_chars)
     for lang in target_langs:
         target_name = language_name(lang)
         covered, parts = 0, []
