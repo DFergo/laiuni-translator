@@ -19,6 +19,7 @@ export type Key =
   | 'portal.start' | 'portal.submitting' | 'portal.errSubmit' | 'portal.errRejected'
   | 'upload.drop' | 'upload.tier1' | 'upload.tier2' | 'upload.tier3' | 'upload.unsupported'
   | 'lang.source' | 'lang.targets'
+  | 'opt.footnotes' | 'opt.speakerNotes'
   | 'status.title' | 'status.intro' | 'status.estimated' | 'status.progress'
   | 'status.scheduledAt' | 'status.failed'
   | 'status.queued' | 'status.scheduledLabel' | 'status.running' | 'status.done' | 'status.pending'
@@ -65,6 +66,8 @@ const en: Dict = {
   'upload.unsupported': 'Unsupported format {ext}. Try .txt or .md.',
   'lang.source': 'Source language',
   'lang.targets': 'Target languages ({n} selected)',
+  'opt.footnotes': 'Translate footnotes and endnotes',
+  'opt.speakerNotes': 'Translate speaker notes',
   'status.title': 'Your translation',
   'status.intro': 'You can leave this page — the result is emailed when ready.',
   'status.estimated': 'Estimated {t}',
