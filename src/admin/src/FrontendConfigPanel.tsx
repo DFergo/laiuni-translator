@@ -18,6 +18,7 @@ interface Cfg {
   schedule_window_start_hour?: number | null
   schedule_window_duration_hours?: number | null
   schedule_mode?: 'scheduled' | 'immediate' | 'both' | null
+  batch_max?: number | null
 }
 
 const numOrNull = (s: string): number | null => (s.trim() === '' ? null : Number(s))
@@ -98,7 +99,7 @@ export default function FrontendConfigPanel({ frontendId }: { frontendId: string
               onChange={e => set({ schedule_window_duration_hours: numOrNull(e.target.value) })}
               placeholder="global" className={inputCls} />
           </div>
-          <div className="sm:col-span-2">
+          <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Mode</label>
             <select value={config.schedule_mode ?? ''}
               onChange={e => set({ schedule_mode: (e.target.value || null) as Cfg['schedule_mode'] })} className={inputCls}>
@@ -107,6 +108,11 @@ export default function FrontendConfigPanel({ frontendId }: { frontendId: string
               <option value="scheduled">Scheduled only</option>
               <option value="immediate">Immediate only</option>
             </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Max documents per submission (1–10)</label>
+            <input type="number" min={1} max={10} value={config.batch_max ?? ''}
+              onChange={e => set({ batch_max: numOrNull(e.target.value) })} placeholder="global" className={inputCls} />
           </div>
         </div>
       </div>

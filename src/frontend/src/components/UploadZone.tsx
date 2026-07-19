@@ -28,16 +28,24 @@ export function tierInfo(filename: string, formats: FormatTier[]): TierInfo {
 }
 
 export function UploadZone({
-  file, onFile, formats,
+  files, onFiles, formats, multiple = false, max = 1,
 }: {
-  file: File | null
-  onFile: (f: File | null) => void
+  files: File[]
+  onFiles: (f: File[]) => void
   formats: FormatTier[]
+  multiple?: boolean
+  max?: number
 }) {
   const t = useT()
   const inputRef = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState(false)
-  const info = file ? tierInfo(file.name, formats) : null
+
+  const add = (list: FileList | null) => {
+    if (!list || list.length === 0) return
+    const incoming = Array.from(list)
+    onFiles(multiple ? [...files, ...incoming].slice(0, max) : incoming.slice(0, 1))
+  }
+  const remove = (idx: number) => onFiles(files.filter((_, i) => i !== idx))
 
   return (
     <div>
@@ -45,10 +53,7 @@ export function UploadZone({
         onClick={() => inputRef.current?.click()}
         onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
         onDragLeave={() => setDragging(false)}
-        onDrop={(e) => {
-          e.preventDefault(); setDragging(false)
-          if (e.dataTransfer.files[0]) onFile(e.dataTransfer.files[0])
-        }}
+        onDrop={(e) => { e.preventDefault(); setDragging(false); add(e.dataTransfer.files) }}
         role="button"
         tabIndex={0}
         onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && inputRef.current?.click()}
@@ -56,23 +61,27 @@ export function UploadZone({
           dragging ? 'border-accent bg-bg' : 'border-border'
         }`}
       >
-        {file ? (
-          <span className="font-medium text-text-primary">{file.name}</span>
-        ) : (
-          <span className="text-text-secondary">{t('upload.drop')}</span>
-        )}
+        <span className="text-text-secondary">{t('upload.drop')}</span>
       </div>
       <input
         ref={inputRef}
         type="file"
+        multiple={multiple}
         className="hidden"
-        onChange={(e) => onFile(e.target.files?.[0] ?? null)}
+        onChange={(e) => { add(e.target.files); e.target.value = '' }}
       />
-      {info && (
-        <div className="mt-3">
-          <Banner kind={info.kind}>{t(info.messageKey, { ext: info.ext || '—' })}</Banner>
-        </div>
-      )}
+      {files.map((f, i) => {
+        const info = tierInfo(f.name, formats)
+        return (
+          <div key={i} className="mt-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="truncate text-sm font-medium text-text-primary">{f.name}</span>
+              <button type="button" onClick={() => remove(i)} className="text-[0.8125rem] text-text-secondary hover:underline">✕</button>
+            </div>
+            <div className="mt-1"><Banner kind={info.kind}>{t(info.messageKey, { ext: info.ext || '—' })}</Banner></div>
+          </div>
+        )
+      })}
     </div>
   )
 }

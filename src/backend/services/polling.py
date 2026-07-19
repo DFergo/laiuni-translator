@@ -235,8 +235,9 @@ async def _handle_auth_request(client: httpx.AsyncClient, frontend_url: str, aut
                 from src.api.v1.admin.settings import scheduling
                 from src.services.smtp_service import resolve_contact
                 contact = resolve_contact(email, frontend_id) or {}
-                mode = "both" if contact.get("schedule_override") else scheduling(frontend_id)["mode"]
-                result["scheduling"] = {"mode": mode}
+                sc = scheduling(frontend_id)
+                mode = "both" if contact.get("schedule_override") else sc["mode"]
+                result["scheduling"] = {"mode": mode, "batch_max": sc["batch_max"]}
             except Exception as e:
                 logger.debug(f"scheduling policy resolve failed: {e}")
 

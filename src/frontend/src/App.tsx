@@ -5,13 +5,16 @@ import { useState, useEffect, useCallback } from 'react'
 import type { JobState, Language, FormatTier, Branding, Step } from './types'
 import { SUPPORTED_FORMATS } from './types'
 import { getLanguages, getConfig, submitJob, getJob } from './api'
-import type { SubmitOpts, SchedulingPolicy } from './api'
+import type { SchedulingPolicy } from './api'
 import { translator, TContext, LANGS_RTL, type Lang } from './i18n'
 import { AuthCard } from './components/AuthCard'
-import { PortalForm } from './components/PortalForm'
+import { PortalForm, type SharedOpts } from './components/PortalForm'
 import { StatusView } from './components/StatusView'
 import { DoneScreen } from './components/DoneScreen'
 import { Banner } from './components/Banner'
+import { Button, Card } from './components/ui'
+
+interface Item { ref: string; name: string }
 
 function applyBranding(b: Branding) {
   if (b.app_title) document.title = b.app_title
@@ -29,7 +32,8 @@ export default function App() {
   const [lang, setLang] = useState<Lang>('en')
   const [authMode, setAuthMode] = useState('token')
   const [scheduling, setScheduling] = useState<SchedulingPolicy | null>(null)
-  const [job, setJob] = useState<JobState | null>(null)
+  const [items, setItems] = useState<Item[]>([])
+  const [states, setStates] = useState<Record<string, JobState>>({})
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -65,32 +69,37 @@ export default function App() {
     return () => { alive = false }
   }, [])
 
-  // Poll job status while on the status screen.
+  // Poll every job in the batch while on the status screen (settled = done/failed).
+  const SETTLED = ['done', 'failed', 'rejected', 'error']
   useEffect(() => {
-    if (step !== 'status' || !job?.ref) return
+    if (step !== 'status' || items.length === 0) return
     let alive = true
     const tick = async () => {
-      try {
-        const s = await getJob(token, job.ref)
-        if (!alive) return
-        setJob(s)
-        if (s.status === 'done') setStep('done')
-      } catch { /* transient — keep polling */ }
+      const entries = await Promise.all(items.map(async (it) => {
+        try { return [it.ref, await getJob(token, it.ref)] as const } catch { return null }
+      }))
+      if (!alive) return
+      const fresh: Record<string, JobState> = {}
+      for (const e of entries) if (e) fresh[e[0]] = e[1]
+      setStates((prev) => ({ ...prev, ...fresh }))
+      if (items.every((it) => SETTLED.includes(fresh[it.ref]?.status ?? ''))) setStep('done')
     }
     const id = setInterval(tick, 2000)
     tick()
     return () => { alive = false; clearInterval(id) }
-  }, [step, job?.ref, token])
+  }, [step, token, items])
 
-  const onSubmit = useCallback(async (o: SubmitOpts) => {
+  const onSubmit = useCallback(async (files: File[], shared: SharedOpts) => {
     setBusy(true); setError('')
     try {
-      const s = await submitJob(token, o)
-      if (s.status === 'rejected' || s.status === 'error') {
-        setError(s.error || t('portal.errRejected'))
-        return
-      }
-      setJob(s)
+      const results = await Promise.all(files.map(async (file) => {
+        try { return { name: file.name, state: await submitJob(token, { file, ...shared }) } }
+        catch { return { name: file.name, state: { ref: '', status: 'error' as const } } }
+      }))
+      const ok = results.filter((r) => r.state.ref)
+      if (ok.length === 0) { setError(t('portal.errSubmit')); return }
+      setItems(ok.map((r) => ({ ref: r.state.ref, name: r.name })))
+      setStates(Object.fromEntries(ok.map((r) => [r.state.ref, r.state])))
       setStep('status')
     } catch {
       setError(t('portal.errSubmit'))
@@ -100,7 +109,7 @@ export default function App() {
   }, [token, t])
 
   function restart() {
-    setJob(null); setError(''); setStep('portal')
+    setItems([]); setStates({}); setError(''); setStep('portal')
   }
 
   return (
@@ -125,9 +134,28 @@ export default function App() {
                 <PortalForm languages={languages} formats={formats} busy={busy} scheduling={scheduling} onSubmit={onSubmit} />
               </>
             )}
-            {step === 'status' && job && <StatusView job={job} languages={languages} />}
-            {step === 'done' && job && (
-              <DoneScreen token={token} jobRef={job.ref} onRestart={restart} />
+            {step === 'status' && items.map((it) => (
+              <StatusView
+                key={it.ref}
+                name={items.length > 1 ? it.name : undefined}
+                job={states[it.ref] ?? { ref: it.ref, status: 'pending' }}
+                languages={languages}
+              />
+            ))}
+            {step === 'done' && (
+              <>
+                {items.map((it) => (
+                  states[it.ref]?.status === 'done' ? (
+                    <DoneScreen key={it.ref} token={token} jobRef={it.ref} name={items.length > 1 ? it.name : undefined} />
+                  ) : (
+                    <Card key={it.ref}>
+                      <p className="mb-2 text-sm font-medium text-text-primary">{it.name}</p>
+                      <Banner kind="danger">{t('status.failed')}</Banner>
+                    </Card>
+                  )
+                ))}
+                <Button variant="ghost" onClick={restart}>{t('done.another')}</Button>
+              </>
             )}
           </div>
         </main>

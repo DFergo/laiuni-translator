@@ -19,7 +19,7 @@ const LABEL_KEY: Record<string, Key> = {
   done: 'status.done', failed: 'status.failed', pending: 'status.pending',
 }
 
-export function StatusView({ job, languages }: { job: JobState; languages: Language[] }) {
+export function StatusView({ job, languages, name }: { job: JobState; languages: Language[]; name?: string }) {
   const t = useT()
   const p = job.progress
   const pct = p && p.total ? Math.round((p.done / p.total) * 100) : 0
@@ -29,6 +29,7 @@ export function StatusView({ job, languages }: { job: JobState; languages: Langu
 
   return (
     <Card>
+      {name && <p className="mb-1 text-[0.8125rem] font-medium text-text-secondary">{name}</p>}
       <h1 className="mb-1 text-[1.5rem] font-semibold text-primary">{t('status.title')}</h1>
       <p className="mb-5 text-sm text-text-secondary">{t('status.intro')}</p>
 

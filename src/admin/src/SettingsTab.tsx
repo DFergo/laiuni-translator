@@ -102,6 +102,12 @@ export default function SettingsTab() {
                 <input type="number" min={1} max={24} value={app.schedule_window_duration_hours}
                   onChange={e => setApp({ ...app, schedule_window_duration_hours: Math.min(24, Math.max(1, parseInt(e.target.value) || 1)) })} className={inputCls} />
               </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Max documents per submission (1–10)</label>
+                <input type="number" min={1} max={10} value={app.batch_max}
+                  onChange={e => setApp({ ...app, batch_max: Math.min(10, Math.max(1, parseInt(e.target.value) || 1)) })} className={inputCls} />
+                <p className="text-xs text-gray-400 mt-1">Multiple-translation batch size; each doc becomes a sequential job.</p>
+              </div>
             </div>
             <div className="mt-4">
               <label className="block text-sm font-medium text-gray-700 mb-1">Mode</label>

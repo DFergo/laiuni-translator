@@ -34,7 +34,7 @@ export async function requestTokenEmailOnly(email: string): Promise<AuthResult> 
 // Per-user scheduling policy returned on sign-in (§12.6/§12.7): a single mode
 // that drives exactly the buttons shown — 'both' shows the toggle, 'immediate'
 // and 'scheduled' force that mode with no toggle.
-export interface SchedulingPolicy { mode: 'scheduled' | 'immediate' | 'both' }
+export interface SchedulingPolicy { mode: 'scheduled' | 'immediate' | 'both'; batch_max?: number }
 export interface AuthResult { token: string; scheduling: SchedulingPolicy | null }
 
 export async function verify(email: string, code: string): Promise<AuthResult> {

@@ -5,11 +5,12 @@ import { Button, Card } from './ui'
 import { Banner } from './Banner'
 
 export function DoneScreen({
-  token, jobRef, onRestart,
+  token, jobRef, onRestart, name,
 }: {
   token: string
   jobRef: string
-  onRestart: () => void
+  onRestart?: () => void
+  name?: string
 }) {
   const t = useT()
   const [busy, setBusy] = useState(false)
@@ -36,13 +37,14 @@ export function DoneScreen({
 
   return (
     <Card>
+      {name && <p className="mb-1 text-[0.8125rem] font-medium text-text-secondary">{name}</p>}
       <h1 className="mb-1 text-[1.5rem] font-semibold text-secondary">{t('done.title')}</h1>
       <p className="mb-5 text-sm text-text-secondary">{t('done.intro')}</p>
       <div className="space-y-3">
         <Button variant="accent" onClick={download} disabled={busy}>
           {busy ? t('done.preparing') : t('done.download')}
         </Button>
-        <Button variant="ghost" onClick={onRestart}>{t('done.another')}</Button>
+        {onRestart && <Button variant="ghost" onClick={onRestart}>{t('done.another')}</Button>}
         {error && <Banner kind="danger">{error}</Banner>}
       </div>
     </Card>

@@ -1,10 +1,18 @@
 import { useState } from 'react'
 import type { Language, FormatTier } from '../types'
-import type { SubmitOpts, SchedulingPolicy } from '../api'
+import type { SchedulingPolicy } from '../api'
 import { useT } from '../i18n'
 import { Button, Card, Field, inputClass } from './ui'
 import { UploadZone, tierInfo } from './UploadZone'
 import { LanguagePicker } from './LanguagePicker'
+
+export interface SharedOpts {
+  sourceLang: string
+  targetLangs: string[]
+  glossary: string
+  mode: 'immediate' | 'scheduled'
+  options: Record<string, boolean>
+}
 
 export function PortalForm({
   languages, formats, busy, scheduling, onSubmit,
@@ -13,29 +21,30 @@ export function PortalForm({
   formats: FormatTier[]
   busy: boolean
   scheduling: SchedulingPolicy | null
-  onSubmit: (o: SubmitOpts) => void
+  onSubmit: (files: File[], shared: SharedOpts) => void
 }) {
   const t = useT()
-  // Scheduling policy (§12.6): one mode drives the buttons. 'both' shows the
-  // toggle (default scheduled); 'immediate'/'scheduled' force that mode with no
-  // toggle — so the UI never hides a policy the user can't see.
   const policy = scheduling?.mode ?? 'both'
   const mayChoose = policy === 'both'
-  const [file, setFile] = useState<File | null>(null)
+  const batchMax = scheduling?.batch_max ?? 5
+  const [files, setFiles] = useState<File[]>([])
+  const [multiple, setMultiple] = useState(false)
   const [source, setSource] = useState('en')
   const [targets, setTargets] = useState<Set<string>>(new Set())
   const [glossary, setGlossary] = useState('')
   const [showGlossary, setShowGlossary] = useState(false)
   const [mode, setMode] = useState<'immediate' | 'scheduled'>(policy === 'immediate' ? 'immediate' : 'scheduled')
-  // Per-job document options (§13.2) — shown only for the relevant format.
+  // Per-job document options (§13.2) — shown only for the relevant format(s) present.
   const [translateFootnotes, setTranslateFootnotes] = useState(true)   // docx, default ON
   const [translateSpeakerNotes, setTranslateSpeakerNotes] = useState(false)  // pptx, default OFF
   const [contextual, setContextual] = useState(true)   // docx/pptx, default ON
 
-  const ext = file ? file.name.slice(file.name.lastIndexOf('.')).toLowerCase() : ''
-  const isStructured = ext === '.docx' || ext === '.pptx'
-  const blocked = file ? tierInfo(file.name, formats).blocked : false
-  const canSubmit = !!file && !blocked && targets.size > 0 && !busy
+  const exts = files.map((f) => f.name.slice(f.name.lastIndexOf('.')).toLowerCase())
+  const hasDocx = exts.includes('.docx')
+  const hasPptx = exts.includes('.pptx')
+  const hasStructured = hasDocx || hasPptx
+  const anyBlocked = files.some((f) => tierInfo(f.name, formats).blocked)
+  const canSubmit = files.length > 0 && !anyBlocked && targets.size > 0 && !busy
 
   function toggle(code: string) {
     setTargets((prev) => {
@@ -51,23 +60,32 @@ export function PortalForm({
       <p className="mb-5 text-sm text-text-secondary">{t('portal.intro', { n: languages.length })}</p>
 
       <div className="space-y-6">
-        <UploadZone file={file} onFile={setFile} formats={formats} />
+        {batchMax > 1 && (
+          <label className="flex items-center gap-2 text-sm text-text-primary">
+            <input type="checkbox" checked={multiple}
+              onChange={(e) => { setMultiple(e.target.checked); if (!e.target.checked) setFiles((f) => f.slice(0, 1)) }}
+              className="h-4 w-4 rounded border-border accent-accent" />
+            {t('portal.multiple', { n: batchMax })}
+          </label>
+        )}
 
-        {ext === '.docx' && (
+        <UploadZone files={files} onFiles={setFiles} formats={formats} multiple={multiple} max={batchMax} />
+
+        {hasDocx && (
           <label className="flex items-center gap-2 text-sm text-text-primary">
             <input type="checkbox" checked={translateFootnotes} onChange={(e) => setTranslateFootnotes(e.target.checked)}
               className="h-4 w-4 rounded border-border accent-accent" />
             {t('opt.footnotes')}
           </label>
         )}
-        {ext === '.pptx' && (
+        {hasPptx && (
           <label className="flex items-center gap-2 text-sm text-text-primary">
             <input type="checkbox" checked={translateSpeakerNotes} onChange={(e) => setTranslateSpeakerNotes(e.target.checked)}
               className="h-4 w-4 rounded border-border accent-accent" />
             {t('opt.speakerNotes')}
           </label>
         )}
-        {isStructured && (
+        {hasStructured && (
           <label className="flex items-center gap-2 text-sm text-text-primary">
             <input type="checkbox" checked={contextual} onChange={(e) => setContextual(e.target.checked)}
               className="h-4 w-4 rounded border-border accent-accent" />
@@ -134,8 +152,8 @@ export function PortalForm({
           variant="accent"
           disabled={!canSubmit}
           onClick={() =>
-            file && onSubmit({
-              file, sourceLang: source, targetLangs: [...targets], glossary, mode,
+            files.length > 0 && onSubmit(files, {
+              sourceLang: source, targetLangs: [...targets], glossary, mode,
               options: { translate_footnotes: translateFootnotes, translate_speaker_notes: translateSpeakerNotes, contextual },
             })
           }

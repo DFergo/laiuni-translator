@@ -62,6 +62,7 @@ export const LOCALES: Partial<Record<Lang, Partial<Record<Key, string>>>> = {
     'opt.footnotes': 'ترجمة الحواشي والتعليقات الختامية',
     'opt.speakerNotes': 'ترجمة ملاحظات المُقدِّم',
     'opt.contextual': 'اقرأ المستند أولاً لسياق أفضل',
+    'portal.multiple': 'ترجمة عدة مستندات دفعة واحدة (حتى {n})',
     'footer': '© 2026 UNI Global Union',
   },
   de: {
@@ -121,6 +122,7 @@ export const LOCALES: Partial<Record<Lang, Partial<Record<Key, string>>>> = {
     'opt.footnotes': 'Fuß- und Endnoten übersetzen',
     'opt.speakerNotes': 'Referentennotizen übersetzen',
     'opt.contextual': 'Dokument zuerst lesen für besseren Kontext',
+    'portal.multiple': 'Mehrere Dokumente auf einmal übersetzen (bis zu {n})',
     'footer': '© 2026 UNI Global Union',
   },
   es: {
@@ -180,6 +182,7 @@ export const LOCALES: Partial<Record<Lang, Partial<Record<Key, string>>>> = {
     'opt.footnotes': 'Traducir notas al pie y notas finales',
     'opt.speakerNotes': 'Traducir notas del presentador',
     'opt.contextual': 'Leer el documento primero para más contexto',
+    'portal.multiple': 'Traducir varios documentos a la vez (hasta {n})',
     'footer': '© 2026 UNI Global Union',
   },
   fr: {
@@ -239,6 +242,7 @@ export const LOCALES: Partial<Record<Lang, Partial<Record<Key, string>>>> = {
     'opt.footnotes': 'Traduire les notes de bas de page et de fin',
     'opt.speakerNotes': "Traduire les notes de l'intervenant",
     'opt.contextual': 'Lire d\'abord le document pour un meilleur contexte',
+    'portal.multiple': 'Traduire plusieurs documents à la fois (jusqu\'à {n})',
     'footer': '© 2026 UNI Global Union',
   },
   hi: {
@@ -298,6 +302,7 @@ export const LOCALES: Partial<Record<Lang, Partial<Record<Key, string>>>> = {
     'opt.footnotes': 'फ़ुटनोट और एंडनोट अनुवाद करें',
     'opt.speakerNotes': 'प्रस्तुतकर्ता नोट्स अनुवाद करें',
     'opt.contextual': 'बेहतर संदर्भ के लिए पहले दस्तावेज़ पढ़ें',
+    'portal.multiple': 'एक साथ कई दस्तावेज़ अनुवाद करें (अधिकतम {n})',
     'footer': '© 2026 UNI Global Union',
   },
   hr: {
@@ -357,6 +362,7 @@ export const LOCALES: Partial<Record<Lang, Partial<Record<Key, string>>>> = {
     'opt.footnotes': 'Prevedi fusnote i završne bilješke',
     'opt.speakerNotes': 'Prevedi bilješke izlagača',
     'opt.contextual': 'Prvo pročitaj dokument za bolji kontekst',
+    'portal.multiple': 'Prevedi više dokumenata odjednom (do {n})',
     'footer': '© 2026 UNI Global Union',
   },
   id: {
@@ -416,6 +422,7 @@ export const LOCALES: Partial<Record<Lang, Partial<Record<Key, string>>>> = {
     'opt.footnotes': 'Terjemahkan catatan kaki dan catatan akhir',
     'opt.speakerNotes': 'Terjemahkan catatan pembicara',
     'opt.contextual': 'Baca dokumen dulu untuk konteks yang lebih baik',
+    'portal.multiple': 'Terjemahkan beberapa dokumen sekaligus (hingga {n})',
     'footer': '© 2026 UNI Global Union',
   },
   it: {
@@ -475,6 +482,7 @@ export const LOCALES: Partial<Record<Lang, Partial<Record<Key, string>>>> = {
     'opt.footnotes': 'Tradurre note a piè di pagina e di chiusura',
     'opt.speakerNotes': 'Tradurre le note del relatore',
     'opt.contextual': 'Leggere prima il documento per un contesto migliore',
+    'portal.multiple': 'Tradurre più documenti insieme (fino a {n})',
     'footer': '© 2026 UNI Global Union',
   },
   ja: {
@@ -534,6 +542,7 @@ export const LOCALES: Partial<Record<Lang, Partial<Record<Key, string>>>> = {
     'opt.footnotes': '脚注と文末脚注を翻訳する',
     'opt.speakerNotes': '発表者ノートを翻訳する',
     'opt.contextual': 'より正確な文脈のため先に文書を読む',
+    'portal.multiple': '複数の文書を一度に翻訳（最大{n}件）',
     'footer': '© 2026 UNI Global Union',
   },
   ne: {
@@ -593,6 +602,7 @@ export const LOCALES: Partial<Record<Lang, Partial<Record<Key, string>>>> = {
     'opt.footnotes': 'फुटनोट र एन्डनोट अनुवाद गर्नुहोस्',
     'opt.speakerNotes': 'प्रस्तुतकर्ताका टिप्पणी अनुवाद गर्नुहोस्',
     'opt.contextual': 'राम्रो सन्दर्भका लागि पहिले कागजात पढ्नुहोस्',
+    'portal.multiple': 'एकैचोटि धेरै कागजात अनुवाद गर्नुहोस् ({n} सम्म)',
     'footer': '© 2026 UNI Global Union',
   },
   nl: {
@@ -652,6 +662,7 @@ export const LOCALES: Partial<Record<Lang, Partial<Record<Key, string>>>> = {
     'opt.footnotes': 'Voet- en eindnoten vertalen',
     'opt.speakerNotes': 'Sprekersnotities vertalen',
     'opt.contextual': 'Lees eerst het document voor betere context',
+    'portal.multiple': 'Meerdere documenten tegelijk vertalen (tot {n})',
     'footer': '© 2026 UNI Global Union',
   },
   pl: {
@@ -711,6 +722,7 @@ export const LOCALES: Partial<Record<Lang, Partial<Record<Key, string>>>> = {
     'opt.footnotes': 'Tłumacz przypisy dolne i końcowe',
     'opt.speakerNotes': 'Tłumacz notatki prezentera',
     'opt.contextual': 'Najpierw przeczytaj dokument dla lepszego kontekstu',
+    'portal.multiple': 'Tłumacz kilka dokumentów naraz (do {n})',
     'footer': '© 2026 UNI Global Union',
   },
   pt: {
@@ -770,6 +782,7 @@ export const LOCALES: Partial<Record<Lang, Partial<Record<Key, string>>>> = {
     'opt.footnotes': 'Traduzir notas de rodapé e finais',
     'opt.speakerNotes': 'Traduzir notas do apresentador',
     'opt.contextual': 'Ler o documento primeiro para melhor contexto',
+    'portal.multiple': 'Traduzir vários documentos de uma vez (até {n})',
     'footer': '© 2026 UNI Global Union',
   },
   sv: {
@@ -829,6 +842,7 @@ export const LOCALES: Partial<Record<Lang, Partial<Record<Key, string>>>> = {
     'opt.footnotes': 'Översätt fot- och slutnoter',
     'opt.speakerNotes': 'Översätt talaranteckningar',
     'opt.contextual': 'Läs dokumentet först för bättre sammanhang',
+    'portal.multiple': 'Översätt flera dokument samtidigt (upp till {n})',
     'footer': '© 2026 UNI Global Union',
   },
   th: {
@@ -888,6 +902,7 @@ export const LOCALES: Partial<Record<Lang, Partial<Record<Key, string>>>> = {
     'opt.footnotes': 'แปลเชิงอรรถและอ้างอิงท้ายเรื่อง',
     'opt.speakerNotes': 'แปลบันทึกของผู้บรรยาย',
     'opt.contextual': 'อ่านเอกสารก่อนเพื่อบริบทที่ดีขึ้น',
+    'portal.multiple': 'แปลหลายเอกสารพร้อมกัน (สูงสุด {n})',
     'footer': '© 2026 UNI Global Union',
   },
   ur: {
@@ -947,6 +962,7 @@ export const LOCALES: Partial<Record<Lang, Partial<Record<Key, string>>>> = {
     'opt.footnotes': 'فوٹ نوٹس اور اینڈ نوٹس ترجمہ کریں',
     'opt.speakerNotes': 'پریزینٹر نوٹس ترجمہ کریں',
     'opt.contextual': 'بہتر سیاق کے لیے پہلے دستاویز پڑھیں',
+    'portal.multiple': 'ایک ساتھ کئی دستاویزات ترجمہ کریں ({n} تک)',
     'footer': '© 2026 UNI Global Union',
   },
 }

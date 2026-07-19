@@ -37,6 +37,8 @@ def _defaults() -> dict[str, Any]:
         # no silent policy. "scheduled" = every job runs in the window;
         # "immediate" = every job runs now; "both" = the user picks.
         "schedule_mode": "both",
+        # Max documents per multiple-translation submission (§13.4), cap 10.
+        "batch_max": 5,
     }
 
 
@@ -93,6 +95,7 @@ def scheduling(frontend_id: str = "") -> dict[str, Any]:
         "start_hour": int(pick("schedule_window_start_hour", config.schedule_default_hour)),
         "duration_hours": int(pick("schedule_window_duration_hours", 3)),
         "mode": mode,
+        "batch_max": max(1, min(10, int(pick("batch_max", 5)))),
     }
 
 
@@ -102,6 +105,7 @@ class SettingsRequest(BaseModel):
     schedule_window_start_hour: int | None = None
     schedule_window_duration_hours: int | None = None
     schedule_mode: str | None = None
+    batch_max: int | None = None
 
 
 @router.get("")

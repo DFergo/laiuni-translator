@@ -16,7 +16,7 @@ export type Key =
   | 'portal.title' | 'portal.intro' | 'portal.glossaryShow' | 'portal.glossaryHide'
   | 'portal.glossary' | 'portal.glossaryHint' | 'portal.glossaryPlaceholder'
   | 'portal.when' | 'portal.scheduled' | 'portal.immediate' | 'portal.scheduleNote'
-  | 'portal.start' | 'portal.submitting' | 'portal.errSubmit' | 'portal.errRejected'
+  | 'portal.start' | 'portal.submitting' | 'portal.errSubmit' | 'portal.errRejected' | 'portal.multiple'
   | 'upload.drop' | 'upload.tier1' | 'upload.tier2' | 'upload.tier3' | 'upload.unsupported'
   | 'lang.source' | 'lang.targets'
   | 'opt.footnotes' | 'opt.speakerNotes' | 'opt.contextual'
@@ -59,6 +59,7 @@ const en: Dict = {
   'portal.submitting': 'Submitting…',
   'portal.errSubmit': 'Submission failed. Please try again.',
   'portal.errRejected': 'That file could not be accepted.',
+  'portal.multiple': 'Translate several documents at once (up to {n})',
   'upload.drop': 'Drop a document here, or click to choose one file.',
   'upload.tier1': 'Plain text — recommended for the cleanest result.',
   'upload.tier2': 'Word / RTF — supported; minor formatting shifts are possible.',

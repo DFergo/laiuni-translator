@@ -76,6 +76,7 @@ export interface AppSettings {
   schedule_window_start_hour: number
   schedule_window_duration_hours: number
   schedule_mode: 'scheduled' | 'immediate' | 'both'
+  batch_max: number
 }
 export const getAppSettings = (): Promise<AppSettings> => request('/admin/settings');
 export const updateAppSettings = (data: Partial<AppSettings>): Promise<AppSettings> =>
@@ -143,6 +144,7 @@ export interface FrontendConfig {
   schedule_window_start_hour?: number | null
   schedule_window_duration_hours?: number | null
   schedule_mode?: 'scheduled' | 'immediate' | 'both' | null
+  batch_max?: number | null
 }
 
 export async function getFrontendConfig(id: string): Promise<{ frontend_id: string; config: FrontendConfig }> {
