@@ -149,7 +149,7 @@ async def _handle_submit(client: httpx.AsyncClient, url: str, fid: str, req: dic
         job = jq.enqueue(
             payload["sub"], req.get("source_lang", "en"), target_langs, tier, str(staged_file),
             frontend_id=fid, client_ref=ref, glossary=req.get("glossary", ""),
-            mode=mode, priority=priority,
+            mode=mode, priority=priority, options=req.get("options") or {},
         )
         job_dir = DOCUMENTS_DIR / job["id"]
         job_dir.mkdir(parents=True, exist_ok=True)

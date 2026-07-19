@@ -219,11 +219,32 @@ def _rebuild_p(p: Any, translated: str, qn: Any, OxmlElement: Any) -> None:
             extra.getparent().remove(extra)
 
 
-def _iter_doc_paragraphs(doc: Any) -> list[Any]:
+def _note_paragraph_elements(doc: Any, qn: Any) -> list[Any]:
+    """`<w:p>` elements inside the footnotes/endnotes parts (skipping the
+    separator/continuation notes). Only parts whose element tree is mutable (and
+    thus saved by python-docx) are used; others are skipped gracefully."""
+    ps: list[Any] = []
+    for rel in list(doc.part.rels.values()):
+        rt = getattr(rel, "reltype", "")
+        if getattr(rel, "is_external", False):
+            continue
+        if not (rt.endswith("/footnotes") or rt.endswith("/endnotes")):
+            continue
+        root = getattr(rel.target_part, "element", None) or getattr(rel.target_part, "_element", None)
+        if root is None:
+            continue
+        for note in list(root.findall(qn("w:footnote"))) + list(root.findall(qn("w:endnote"))):
+            if note.get(qn("w:type")) in ("separator", "continuationSeparator"):
+                continue
+            ps.extend(note.iter(qn("w:p")))
+    return ps
+
+
+def _iter_doc_paragraphs(doc: Any, include_notes: bool = False) -> list[Any]:
     """Every translatable `<w:p>` element, in a stable order: body + tables (any
-    depth, via `body.iter`) then every section's headers/footers (all types).
-    extract + recompose walk this identically so segments line up. Footnotes/
-    endnotes are preserved but not yet translated (see docs/ideas.md)."""
+    depth, via `body.iter`) then every section's headers/footers (all types), and
+    — when ``include_notes`` — footnotes/endnotes. extract + recompose walk this
+    identically (same doc, same flag) so segments line up."""
     from docx.oxml.ns import qn
     ps: list[Any] = list(doc.element.body.iter(qn("w:p")))
     hf_attrs = ("header", "footer", "first_page_header", "first_page_footer",
@@ -242,18 +263,23 @@ def _iter_doc_paragraphs(doc: Any) -> list[Any]:
                     ps.extend(tbl._tbl.iter(qn("w:p")))
             except Exception:
                 continue
+    if include_notes:
+        try:
+            ps.extend(_note_paragraph_elements(doc, qn))
+        except Exception as e:
+            logger.warning(f"footnotes/endnotes extraction skipped: {e}")
     return ps
 
 
-def _extract_docx(p: Path) -> dict[str, Any]:
+def _extract_docx(p: Path, include_notes: bool = False) -> dict[str, Any]:
     from docx import Document
     from docx.oxml.ns import qn
     doc = Document(str(p))
     segments = []
-    for pel in _iter_doc_paragraphs(doc):
+    for pel in _iter_doc_paragraphs(doc, include_notes):
         text, translate = _serialize_p(pel, qn)
         segments.append({"text": text, "translate": translate})
-    return {"format": "docx", "source_path": str(p), "segments": segments}
+    return {"format": "docx", "source_path": str(p), "segments": segments, "include_notes": include_notes}
 
 
 def _recompose_docx(ir: dict[str, Any], target_lang: str, out_path: str | None) -> str:
@@ -261,7 +287,7 @@ def _recompose_docx(ir: dict[str, Any], target_lang: str, out_path: str | None) 
     from docx.oxml.ns import qn
     from docx.oxml import OxmlElement
     doc = Document(ir["source_path"])  # fresh copy per language (no cross-lang mutation)
-    for seg, pel in zip(ir["segments"], _iter_doc_paragraphs(doc)):
+    for seg, pel in zip(ir["segments"], _iter_doc_paragraphs(doc, ir.get("include_notes", False))):
         if not seg["translate"]:
             continue
         translated = seg.get("out", {}).get(target_lang)
@@ -302,9 +328,10 @@ def _recompose_rtf(ir: dict[str, Any], target_lang: str, out_path: str | None) -
 # complex layouts may degrade. The UI warns before submission.
 
 
-def _iter_pptx_paragraphs(prs: Any) -> list[Any]:
+def _iter_pptx_paragraphs(prs: Any, include_notes: bool = False) -> list[Any]:
     """Every text paragraph in a presentation, stable order: for each slide, each
-    shape's text frame, then table cells."""
+    shape's text frame, then table cells; and — when ``include_notes`` — the
+    slide's speaker-notes paragraphs. extract + recompose walk this identically."""
     paras: list[Any] = []
     for slide in prs.slides:
         for shape in slide.shapes:
@@ -314,6 +341,12 @@ def _iter_pptx_paragraphs(prs: Any) -> list[Any]:
                 for row in shape.table.rows:
                     for cell in row.cells:
                         paras.extend(cell.text_frame.paragraphs)
+        if include_notes:
+            try:
+                if slide.has_notes_slide:
+                    paras.extend(slide.notes_slide.notes_text_frame.paragraphs)
+            except Exception:
+                pass
     return paras
 
 
@@ -379,22 +412,22 @@ def _pptx_rebuild_p(para: Any, translated: str, qn: Any) -> None:
             extra.getparent().remove(extra)
 
 
-def _extract_pptx(p: Path) -> dict[str, Any]:
+def _extract_pptx(p: Path, include_notes: bool = False) -> dict[str, Any]:
     from pptx import Presentation
     from pptx.oxml.ns import qn
     prs = Presentation(str(p))
     segments = []
-    for para in _iter_pptx_paragraphs(prs):
+    for para in _iter_pptx_paragraphs(prs, include_notes):
         text, translate = _pptx_serialize_p(para, qn)
         segments.append({"text": text, "translate": translate})
-    return {"format": "pptx", "source_path": str(p), "segments": segments}
+    return {"format": "pptx", "source_path": str(p), "segments": segments, "include_notes": include_notes}
 
 
 def _recompose_pptx(ir: dict[str, Any], target_lang: str, out_path: str | None) -> str:
     from pptx import Presentation
     from pptx.oxml.ns import qn
     prs = Presentation(ir["source_path"])  # fresh per language
-    for seg, para in zip(ir["segments"], _iter_pptx_paragraphs(prs)):
+    for seg, para in zip(ir["segments"], _iter_pptx_paragraphs(prs, ir.get("include_notes", False))):
         if not seg["translate"]:
             continue
         translated = seg.get("out", {}).get(target_lang)
@@ -424,16 +457,20 @@ def _default_out(ir: dict[str, Any], target_lang: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def extract(path: str) -> dict[str, Any]:
-    """Build the IR for a document, dispatching on format (Tier 1 + Tier 2)."""
+def extract(path: str, options: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Build the IR for a document, dispatching on format (Tier 1 + Tier 2).
+
+    ``options`` are per-job document options (§13.2): ``translate_footnotes``
+    (docx, default on) and ``translate_speaker_notes`` (pptx, default off)."""
+    options = options or {}
     p = Path(path)
     suf = p.suffix.lower()
     if suf in _DOCX_SUFFIXES:
-        return _extract_docx(p)
+        return _extract_docx(p, options.get("translate_footnotes", True))
     if suf in _RTF_SUFFIXES:
         return _extract_rtf(p)
     if suf in _PPTX_SUFFIXES:
-        return _extract_pptx(p)
+        return _extract_pptx(p, options.get("translate_speaker_notes", False))
     # Text-native (Path A, ADR-014): keep the whole text; the model preserves
     # Markdown structure in one pass (no loss-less segmentation needed).
     fmt = "md" if suf in _MD_SUFFIXES else "txt"
@@ -679,9 +716,10 @@ async def translate_document(
     connection_id: str | None = None,
     model: str | None = None,
     frontend_id: str = "",
+    options: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     """End-to-end: extract → translate → recompose. Returns ``{lang: out_path}``."""
-    ir = extract(path)
+    ir = extract(path, options)
     await translate(ir, source_lang, target_langs, user_glossary, connection_id, model, frontend_id)
     src = Path(path)
     outputs: dict[str, str] = {}

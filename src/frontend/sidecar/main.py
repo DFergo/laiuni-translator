@@ -657,6 +657,7 @@ async def submit_job(
     target_langs: str = Form(...),   # JSON list or comma-separated codes
     glossary: str = Form(""),
     mode: str = Form("scheduled"),
+    options: str = Form("{}"),       # JSON: per-job document options (§13.2)
     authorization: str = Header(default=""),
 ):
     """Upload one file + params. The backend detects tier, estimates, enqueues."""
@@ -673,12 +674,16 @@ async def submit_job(
 
     raw = target_langs.strip()
     langs = json.loads(raw) if raw.startswith("[") else [x.strip() for x in raw.split(",") if x.strip()]
+    try:
+        opts = json.loads(options) if options else {}
+    except json.JSONDecodeError:
+        opts = {}
 
     async with _jobs_lock:
         _job_submits.append({
             "ref": ref, "token": _bearer(authorization), "filename": file.filename,
             "source_lang": source_lang, "target_langs": langs,
-            "glossary": glossary, "mode": mode,
+            "glossary": glossary, "mode": mode, "options": opts,
         })
     logger.info(f"Job submit queued ref={ref} file={file.filename} langs={langs}")
     state = await _wait_for(lambda: _jobs.get(ref))

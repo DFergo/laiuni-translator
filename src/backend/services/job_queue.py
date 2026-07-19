@@ -74,7 +74,8 @@ def init_db() -> None:
                 error        TEXT NOT NULL DEFAULT '',
                 created_at   REAL NOT NULL,
                 expires_at   REAL,            -- set on done
-                priority     INTEGER NOT NULL DEFAULT 0   -- §12.7 privilege: 1 = jump the queue
+                priority     INTEGER NOT NULL DEFAULT 0,  -- §12.7 privilege: 1 = jump the queue
+                options      TEXT NOT NULL DEFAULT '{}'   -- §13.2 per-job document options (JSON)
             )
             """
         )
@@ -84,6 +85,8 @@ def init_db() -> None:
             conn.execute("ALTER TABLE jobs ADD COLUMN client_ref TEXT NOT NULL DEFAULT ''")
         if "priority" not in cols:    # Sprint 13
             conn.execute("ALTER TABLE jobs ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
+        if "options" not in cols:     # Sprint 15
+            conn.execute("ALTER TABLE jobs ADD COLUMN options TEXT NOT NULL DEFAULT '{}'")
 
 
 def detect_tier(filename: str) -> str | None:
@@ -100,6 +103,10 @@ def _row_to_job(row: sqlite3.Row) -> dict[str, Any]:
     job = dict(row)
     job["target_langs"] = json.loads(job["target_langs"])
     job["progress"] = json.loads(job["progress"])
+    try:
+        job["options"] = json.loads(job.get("options") or "{}")
+    except (json.JSONDecodeError, TypeError):
+        job["options"] = {}
     return job
 
 
@@ -164,6 +171,7 @@ def enqueue(
     glossary: str = "",
     mode: str = "scheduled",
     priority: bool = False,
+    options: dict[str, Any] | None = None,
     chars: int | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
@@ -186,12 +194,12 @@ def enqueue(
         conn.execute(
             """INSERT INTO jobs (id, owner_email, frontend_id, client_ref, source_lang,
                    target_langs, format, path, glossary, mode, run_at, status, progress,
-                   estimate_s, error, created_at, expires_at, priority)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   estimate_s, error, created_at, expires_at, priority, options)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (job_id, owner_email.lower().strip(), frontend_id, client_ref, source_lang,
              json.dumps(target_langs), fmt, path, glossary, mode,
              run_at_dt.timestamp(), status, json.dumps(progress), estimate,
-             "", now.timestamp(), None, 1 if priority else 0),
+             "", now.timestamp(), None, 1 if priority else 0, json.dumps(options or {})),
         )
     logger.info(f"Enqueued job {job_id} status={status} run_at={run_at_dt.isoformat()} "
                 f"priority={int(priority)} langs={len(target_langs)} estimate={estimate}s")
@@ -328,7 +336,7 @@ async def process_job(job: dict[str, Any]) -> None:
     mark_running(job_id)
     try:
         out_dir = _job_dir(job_id)
-        ir = extract(job["path"])
+        ir = extract(job["path"], job.get("options") or {})
         src = Path(job["path"])
         langs_done: list[str] = []
         outputs: list[Path] = []

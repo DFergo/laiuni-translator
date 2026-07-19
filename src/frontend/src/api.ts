@@ -78,6 +78,7 @@ export interface SubmitOpts {
   targetLangs: string[]
   glossary: string
   mode: 'immediate' | 'scheduled'
+  options?: Record<string, boolean>   // §13.2 per-job document options
 }
 
 export async function submitJob(token: string, o: SubmitOpts): Promise<JobState> {
@@ -87,6 +88,7 @@ export async function submitJob(token: string, o: SubmitOpts): Promise<JobState>
   fd.append('target_langs', JSON.stringify(o.targetLangs))
   fd.append('glossary', o.glossary)
   fd.append('mode', o.mode)
+  fd.append('options', JSON.stringify(o.options || {}))
   return asJson<JobState>(
     await fetch('/jobs', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd }),
   )
