@@ -44,6 +44,25 @@ _DOCX_SUFFIXES = {".docx"}
 _RTF_SUFFIXES = {".rtf"}
 _PPTX_SUFFIXES = {".pptx"}
 
+# RTL text direction (ADR-020). Of the 17 languages only Arabic and Urdu are
+# right-to-left; recompose sets RTL direction for these targets in docx/pptx.
+_RTL_LANGS = {"ar", "ur"}
+
+
+def _is_rtl(lang: str) -> bool:
+    return (lang or "").split("-")[0].lower() in _RTL_LANGS
+
+
+def _has_rtl_char(text: str) -> bool:
+    """True if any character is Arabic-script (covers AR + UR). Used to mark only
+    RTL-script runs `w:rtl`, leaving Latin/number runs LTR (as Word itself does)."""
+    # Arabic + Supplement + Extended-A + Presentation Forms A/B.
+    return any(
+        0x0600 <= o <= 0x06FF or 0x0750 <= o <= 0x077F or 0x08A0 <= o <= 0x08FF
+        or 0xFB50 <= o <= 0xFDFF or 0xFE70 <= o <= 0xFEFF
+        for o in map(ord, text)
+    )
+
 
 def _strip_think(text: str) -> str:
     """Remove <think>...</think> reasoning blocks from model output."""
@@ -303,11 +322,44 @@ def _extract_docx(p: Path, include_notes: bool = False) -> dict[str, Any]:
     return {"format": "docx", "source_path": str(p), "segments": segments, "include_notes": include_notes}
 
 
+# RTL (ADR-020). w:bidi must precede these successors in pPr / sectPr child order
+# (ISO 29500); insert_element_before keeps the tree schema-valid.
+_PPR_BIDI_SUCCESSORS = ("w:adjustRightInd", "w:snapToGrid", "w:spacing", "w:ind",
+                        "w:contextualSpacing", "w:mirrorIndents", "w:suppressOverlap",
+                        "w:jc", "w:textDirection", "w:textAlignment", "w:textboxTightWrap",
+                        "w:outlineLvl", "w:divId", "w:cnfStyle", "w:rPr", "w:sectPr",
+                        "w:pPrChange")
+_SECTPR_BIDI_SUCCESSORS = ("w:rtlGutter", "w:docGrid", "w:printerSettings", "w:sectPrChange")
+
+
+def _docx_paragraph_rtl(pel: Any, qn: Any, OxmlElement: Any) -> None:
+    """Right-to-left a translated `<w:p>`: `w:bidi` on its pPr + `w:rtl` on every
+    run whose text is RTL script (Latin/number runs stay LTR, as Word does)."""
+    pPr = pel.get_or_add_pPr()
+    if pPr.find(qn("w:bidi")) is None:
+        pPr.insert_element_before(OxmlElement("w:bidi"), *_PPR_BIDI_SUCCESSORS)
+    for r in pel.iter(qn("w:r")):
+        if not _has_rtl_char("".join(t.text or "" for t in r.findall(qn("w:t")))):
+            continue
+        rPr = r.get_or_add_rPr()
+        if rPr.find(qn("w:rtl")) is None:
+            rPr.get_or_add_rtl()
+
+
+def _docx_sections_rtl(doc: Any, qn: Any, OxmlElement: Any) -> None:
+    """`w:bidi` on every section's sectPr so the page base direction is RTL."""
+    for section in doc.sections:
+        sectPr = section._sectPr
+        if sectPr.find(qn("w:bidi")) is None:
+            sectPr.insert_element_before(OxmlElement("w:bidi"), *_SECTPR_BIDI_SUCCESSORS)
+
+
 def _recompose_docx(ir: dict[str, Any], target_lang: str, out_path: str | None) -> str:
     from docx import Document
     from docx.oxml.ns import qn
     from docx.oxml import OxmlElement
     doc = Document(ir["source_path"])  # fresh copy per language (no cross-lang mutation)
+    rtl = _is_rtl(target_lang)
     for seg, pel in zip(ir["segments"], _iter_doc_paragraphs(doc, ir.get("include_notes", False))):
         if not seg["translate"]:
             continue
@@ -322,6 +374,16 @@ def _recompose_docx(ir: dict[str, Any], target_lang: str, out_path: str | None) 
                 _rebuild_p(pel, _strip_markers(translated), qn, OxmlElement)
             except Exception:
                 pass
+        if rtl:
+            try:
+                _docx_paragraph_rtl(pel, qn, OxmlElement)
+            except Exception as e:
+                logger.warning(f"docx paragraph RTL failed ({e})")
+    if rtl:
+        try:
+            _docx_sections_rtl(doc, qn, OxmlElement)
+        except Exception as e:
+            logger.warning(f"docx section RTL failed ({e})")
     out_path = out_path or _default_out(ir, target_lang)
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     doc.save(out_path)
@@ -448,6 +510,7 @@ def _recompose_pptx(ir: dict[str, Any], target_lang: str, out_path: str | None) 
     from pptx import Presentation
     from pptx.oxml.ns import qn
     prs = Presentation(ir["source_path"])  # fresh per language
+    rtl = _is_rtl(target_lang)
     for seg, para in zip(ir["segments"], _iter_pptx_paragraphs(prs, ir.get("include_notes", False))):
         if not seg["translate"]:
             continue
@@ -462,6 +525,11 @@ def _recompose_pptx(ir: dict[str, Any], target_lang: str, out_path: str | None) 
                 para.text = _strip_markers(translated)
             except Exception:
                 pass
+        if rtl:  # DrawingML direction is paragraph-level (a:pPr @rtl), ADR-020
+            try:
+                para._p.get_or_add_pPr().set("rtl", "1")
+            except Exception as e:
+                logger.warning(f"pptx paragraph RTL failed ({e})")
     out_path = out_path or _default_out(ir, target_lang)
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     prs.save(out_path)
