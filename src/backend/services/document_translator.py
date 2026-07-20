@@ -777,8 +777,13 @@ async def translate(
 
     # Resolve the effective glossary once per job: base + per-server (replace|append);
     # the per-job user glossary wins per unit (§11.3, precedence user > server > base).
+    # When the admin has turned the glossary off ("ignore glossary" toggle, §11.4a),
+    # every layer — base, per-server AND the per-job user terms — is skipped.
     from src.api.v1.admin.knowledge import resolve_glossary
-    glossary_terms = resolve_glossary(frontend_id)
+    glossary_on = get_llm_settings(frontend_id).get("translation_glossary_enabled", True)
+    glossary_terms = resolve_glossary(frontend_id) if glossary_on else []
+    if not glossary_on:
+        user_glossary = ""
     flavour = load_document_flavour(frontend_id)
     flavour_block = f"\n\n## House style (this instance)\n\n{flavour}" if flavour else ""
     source_name = language_name(source_lang)

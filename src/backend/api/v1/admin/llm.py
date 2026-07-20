@@ -63,7 +63,7 @@ _DEFAULTS: dict[str, Any] = {
     "translation_temperature": 0.1,
     "translation_max_tokens": None,
     "translation_num_ctx": None,
-    "translation_glossary_enabled": False,
+    "translation_glossary_enabled": True,  # glossary ON by default; "ignore glossary" is off
     "translation_enable_thinking": False,
     "compression_threshold": 0.75,  # legacy — kept for migration
     "compression_first_threshold": 20000,  # first compression at N tokens

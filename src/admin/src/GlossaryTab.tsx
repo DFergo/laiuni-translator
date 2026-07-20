@@ -49,7 +49,12 @@ export default function GlossaryTab() {
 
   const toggleIgnore = async () => {
     if (glossaryEnabled === null) return
-    const next = !glossaryEnabled
+    const next = !glossaryEnabled  // next = new value of translation_glossary_enabled
+    // Turning "Ignore glossary" ON means disabling the glossary (next === false):
+    // require an explicit confirmation so it can't be flipped by accident.
+    if (next === false && !confirm(
+      'Ignore the glossary for ALL translations? Base, per-server and per-job user terms will be skipped. Off is strongly recommended.'
+    )) return
     setGlossaryEnabled(next)
     try { await updateLLMSettings({ translation_glossary_enabled: next }) }
     catch (e) { setGlossaryEnabled(!next); setErr(e instanceof Error ? e.message : 'Failed') }
