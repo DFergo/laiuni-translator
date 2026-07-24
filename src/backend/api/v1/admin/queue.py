@@ -20,17 +20,37 @@ usage_router = APIRouter(prefix="/admin/usage", tags=["admin-usage"])
 
 @router.get("")
 async def get_queue(_: dict = Depends(require_admin)):
-    """Running + waiting jobs in run order, each with its 1-based position."""
+    """Running + waiting jobs in run order (each with its 1-based position), plus
+    the list of failed jobs with their recorded error (so the admin can copy the
+    reason or relaunch, instead of digging through container logs)."""
     jobs = jq.list_queue()
-    return {"jobs": [
-        {
-            "id": j["id"], "owner": j["owner_email"], "frontend_id": j["frontend_id"],
-            "status": j["status"], "mode": j["mode"], "priority": bool(j["priority"]),
-            "format": j["format"], "n_langs": len(j["target_langs"]),
-            "created_at": j["created_at"], "run_at": j["run_at"], "position": i + 1,
-        }
-        for i, j in enumerate(jobs)
-    ]}
+    return {
+        "jobs": [
+            {
+                "id": j["id"], "owner": j["owner_email"], "frontend_id": j["frontend_id"],
+                "status": j["status"], "mode": j["mode"], "priority": bool(j["priority"]),
+                "format": j["format"], "n_langs": len(j["target_langs"]),
+                "created_at": j["created_at"], "run_at": j["run_at"], "position": i + 1,
+            }
+            for i, j in enumerate(jobs)
+        ],
+        "failed": [
+            {
+                "id": j["id"], "owner": j["owner_email"], "frontend_id": j["frontend_id"],
+                "format": j["format"], "n_langs": len(j["target_langs"]),
+                "created_at": j["created_at"], "error": j["error"],
+            }
+            for j in jq.list_failed()
+        ],
+    }
+
+
+@router.post("/{job_id}/retry")
+async def retry(job_id: str, _: dict = Depends(require_admin)):
+    """Re-queue a failed job to run again now (its source file persists)."""
+    ok = jq.retry(job_id)
+    logger.info(f"Admin retry job {job_id}: {'re-queued' if ok else 'not retryable'}")
+    return {"ok": ok}
 
 
 @router.post("/{job_id}/prioritise")

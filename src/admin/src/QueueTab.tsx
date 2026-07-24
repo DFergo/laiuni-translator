@@ -1,18 +1,20 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
-  getQueue, prioritiseJob, moveJob, deleteQueueJob, getUsage,
-  type QueueJob, type UsageRow,
+  getQueue, prioritiseJob, moveJob, retryJob, deleteQueueJob, getUsage,
+  type QueueJob, type FailedJob, type UsageRow,
 } from './api'
 
 export default function QueueTab() {
   const [jobs, setJobs] = useState<QueueJob[]>([])
+  const [failed, setFailed] = useState<FailedJob[]>([])
   const [usage, setUsage] = useState<UsageRow[]>([])
   const [error, setError] = useState('')
+  const [copiedId, setCopiedId] = useState('')
 
   const refresh = useCallback(async () => {
     try {
       const [q, u] = await Promise.all([getQueue(), getUsage()])
-      setJobs(q.jobs); setUsage(u.usage)
+      setJobs(q.jobs); setFailed(q.failed); setUsage(u.usage)
     } catch (e) { setError(e instanceof Error ? e.message : 'Failed to load') }
   }, [])
 
@@ -23,6 +25,17 @@ export default function QueueTab() {
   }, [refresh])
 
   const act = async (fn: () => Promise<unknown>) => { try { await fn(); await refresh() } catch { /* ignore */ } }
+
+  const copyError = async (j: FailedJob) => {
+    try { await navigator.clipboard.writeText(j.error || '(no error recorded)') } catch { /* ignore */ }
+    setCopiedId(j.id); setTimeout(() => setCopiedId(''), 1500)
+  }
+
+  const relaunch = async (id: string) => {
+    const r = await retryJob(id)
+    if (!r.ok) { alert('Could not relaunch — the source file is no longer on disk.'); return }
+    await refresh()
+  }
 
   const statusBadge = (s: string) => {
     const c = s === 'running' ? 'bg-green-100 text-green-700'
@@ -78,6 +91,37 @@ export default function QueueTab() {
           </table>
         </div>
       </div>
+
+      {/* Failed jobs */}
+      {failed.length > 0 && (
+        <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-1">Failed jobs</h2>
+          <p className="text-sm text-gray-500 mb-4">Kept here with the recorded reason — copy it, relaunch the job (its file is still on disk), or delete it. No need to read the container logs.</p>
+          <div className="space-y-3">
+            {failed.map((j) => (
+              <div key={j.id} className="border border-red-200 bg-red-50/40 rounded-lg p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-sm text-gray-700 min-w-0">
+                    <span className="font-medium">{j.owner}</span>
+                    <span className="text-gray-400"> · </span>
+                    <span className="uppercase text-gray-500">{j.format}</span>
+                    <span className="text-gray-400"> · </span>
+                    <span className="text-gray-500">{j.n_langs} lang{j.n_langs === 1 ? '' : 's'}</span>
+                  </div>
+                  <div className="flex items-center gap-1 whitespace-nowrap">
+                    <button title="Copy the failure reason" onClick={() => copyError(j)} className="text-xs border border-gray-300 rounded-lg px-2 py-1 hover:bg-white">{copiedId === j.id ? 'copied ✓' : 'copy error'}</button>
+                    <button title="Relaunch this job" onClick={() => relaunch(j.id)} className="text-xs border border-uni-blue text-uni-blue rounded-lg px-2 py-1 hover:bg-white">relaunch</button>
+                    <button title="Delete" onClick={() => { if (confirm('Delete this failed job?')) act(() => deleteQueueJob(j.id)) }} className="text-xs text-uni-red px-2 py-1 hover:underline">delete</button>
+                  </div>
+                </div>
+                {j.error && (
+                  <pre className="mt-2 text-xs text-gray-600 bg-white border border-gray-200 rounded p-2 max-h-32 overflow-auto whitespace-pre-wrap break-words">{j.error}</pre>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Usage log */}
       <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">

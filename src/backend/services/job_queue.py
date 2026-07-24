@@ -319,7 +319,9 @@ def mark_done(job_id: str, expires_at: float) -> None:
 
 
 def mark_failed(job_id: str, error: str) -> None:
-    _set(job_id, status="failed", error=error[:500])
+    # Keep the TAIL: both Python tracebacks and the tikal subprocess dump put the
+    # fatal line (exception type / "Error merging") at the end — the head is noise.
+    _set(job_id, status="failed", error=error[-4000:])
 
 
 def assign_path(job_id: str, path: str) -> None:
@@ -349,6 +351,31 @@ def list_queue() -> list[dict[str, Any]]:
             _ACTIVE,
         ).fetchall()
     return [_row_to_job(r) for r in rows]
+
+
+def list_failed() -> list[dict[str, Any]]:
+    """Failed jobs (most recent first). Never swept (retention only clears `done`),
+    so they persist with their error until the admin retries or deletes them."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM jobs WHERE status = 'failed' ORDER BY created_at DESC"
+        ).fetchall()
+    return [_row_to_job(r) for r in rows]
+
+
+def retry(job_id: str) -> bool:
+    """Re-queue a failed job to run again now. Returns False if the job isn't
+    failed or its source file is gone (failed jobs aren't swept, so it normally
+    persists). Reuses the same row → the result email/download path is unchanged."""
+    job = get(job_id)
+    if not job or job["status"] != "failed":
+        return False
+    if not job.get("path") or not Path(job["path"]).exists():
+        return False
+    progress = {"total": len(job["target_langs"]), "done": 0, "langs_done": []}
+    _set(job_id, status="queued", run_at=time.time(), error="", progress=json.dumps(progress))
+    logger.info(f"Admin re-queued failed job {job_id}")
+    return True
 
 
 def set_priority(job_id: str, on: bool) -> None:

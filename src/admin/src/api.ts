@@ -90,11 +90,17 @@ export interface QueueJob {
   mode: string; priority: boolean; format: string; n_langs: number
   created_at: number; run_at: number; position: number
 }
-export const getQueue = (): Promise<{ jobs: QueueJob[] }> => request('/admin/queue');
+export interface FailedJob {
+  id: string; owner: string; frontend_id: string
+  format: string; n_langs: number; created_at: number; error: string
+}
+export const getQueue = (): Promise<{ jobs: QueueJob[]; failed: FailedJob[] }> => request('/admin/queue');
 export const prioritiseJob = (id: string, on: boolean): Promise<{ ok: boolean }> =>
   request(`/admin/queue/${id}/prioritise?on=${on}`, { method: 'POST' });
 export const moveJob = (id: string, direction: 'up' | 'down'): Promise<{ ok: boolean }> =>
   request(`/admin/queue/${id}/move?direction=${direction}`, { method: 'POST' });
+export const retryJob = (id: string): Promise<{ ok: boolean }> =>
+  request(`/admin/queue/${id}/retry`, { method: 'POST' });
 export const deleteQueueJob = (id: string): Promise<{ ok: boolean }> =>
   request(`/admin/queue/${id}`, { method: 'DELETE' });
 
