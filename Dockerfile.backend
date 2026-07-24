@@ -19,7 +19,7 @@ WORKDIR /app
 # Java (headless JRE) powers the optional Okapi/Tikal engine (ADR-021) — an
 # in-container CLI, same pattern as pypandoc→pandoc, never a host CLI.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    pandoc openjdk-17-jre-headless curl unzip \
+    pandoc openjdk-21-jre-headless curl unzip \
     && rm -rf /var/lib/apt/lists/*
 
 # Okapi Tikal (ADR-021): the localisation filter framework used as the alternative
