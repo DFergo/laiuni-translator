@@ -74,11 +74,29 @@ def _strip_think(text: str) -> str:
 # to model eviction. Nothing used to check, so the hole was silently concatenated and
 # emailed. We now retry, and fail the job loudly rather than ship a truncated document.
 _TRANSLATION_MAX_ATTEMPTS = 3
-_MIN_OUTPUT_RATIO = 0.4       # a prose unit shorter than this fraction of its source is truncated/empty
+_MIN_OUTPUT_RATIO = 0.4       # default: a prose unit shorter than this fraction of its source is truncated/empty
 _MIN_GUARDED_CHARS = 200      # don't length-check tiny units (short paragraphs, headings, cells)
 
+# The 40% default assumes Latin/Cyrillic-family targets, which run roughly source-length
+# or longer. Dense/no-space scripts legitimately compress further — false-positived on
+# real .docx content translated to Japanese (~35-37%), incident 2026-07-24, SPEC §11.7.
+# Grouped by script family (not tuned per language — no corpus data to justify finer
+# precision); languages absent here keep the 0.4 default.
+_MIN_OUTPUT_RATIO_BY_LANG: dict[str, float] = {
+    "ja": 0.25,  # CJK — logographic, no inter-word spaces
+    "ar": 0.30,  # abjad — unvocalised, compact
+    "ur": 0.30,  # abjad — same script family as ar
+    "hi": 0.30,  # Devanagari — conjunct consonants compress multiple sounds/glyph
+    "ne": 0.30,  # Devanagari — same script family as hi
+    "th": 0.30,  # abugida — no inter-word spaces
+}
 
-def _looks_truncated(core: str, out: str) -> bool:
+
+def _min_output_ratio(target_lang: str) -> float:
+    return _MIN_OUTPUT_RATIO_BY_LANG.get((target_lang or "").lower(), _MIN_OUTPUT_RATIO)
+
+
+def _looks_truncated(core: str, out: str, ratio: float) -> bool:
     """True if a translation is empty or suspiciously shorter than its source — the
     signature of an emptied/early-stopped unit that must NOT be shipped silently.
     Only length-checks non-trivial units, so short structural paragraphs (which can
@@ -87,7 +105,7 @@ def _looks_truncated(core: str, out: str) -> bool:
     if not stripped:
         return True
     src = core.strip()
-    return len(src) >= _MIN_GUARDED_CHARS and len(stripped) < _MIN_OUTPUT_RATIO * len(src)
+    return len(src) >= _MIN_GUARDED_CHARS and len(stripped) < ratio * len(src)
 
 
 # ---------------------------------------------------------------------------
@@ -677,6 +695,7 @@ async def _translate_unit(
     *,
     source_name: str,
     target_name: str,
+    target_lang: str,
     ctx_before: str,
     ctx_after: str,
     sliced: list[dict[str, str]],
@@ -688,6 +707,7 @@ async def _translate_unit(
     fail loudly rather than ship a hole — queso-suizo bug) and marker integrity (retry when
     the run-formatting markers came back corrupted). Retries nudge the temperature up so a
     deterministic low-temperature failure doesn't simply reproduce."""
+    ratio = _min_output_ratio(target_lang)
     last = ""
     for attempt in range(1, _TRANSLATION_MAX_ATTEMPTS + 1):
         attempt_chain = chain if attempt == 1 else _bump_temperature(chain, attempt)
@@ -695,20 +715,21 @@ async def _translate_unit(
             core, source_name=source_name, target_name=target_name,
             ctx_before=ctx_before, ctx_after=ctx_after, sliced=sliced,
             system_prompt=system_prompt, review_prompt=review_prompt, chain=attempt_chain)
-        truncated = _looks_truncated(core, last)
+        truncated = _looks_truncated(core, last, ratio)
         if not truncated and _markers_intact(core, last):
             return last
-        reason = (f"looks incomplete ({len(last.strip())} vs {len(core.strip())} src chars)"
+        reason = (f"looks incomplete ({len(last.strip())} vs {len(core.strip())} src chars, "
+                  f"min ratio {ratio:.0%})"
                   if truncated else "corrupted its formatting markers")
         logger.warning(
             f"Translation → {target_name} {reason}, "
             f"attempt {attempt}/{_TRANSLATION_MAX_ATTEMPTS} — retrying")
     # Missing content is unshippable (queso-suizo) → fail the job loudly.
-    if _looks_truncated(core, last):
+    if _looks_truncated(core, last, ratio):
         raise ValueError(
             f"Translation → {target_name} still incomplete after {_TRANSLATION_MAX_ATTEMPTS} "
-            f"attempts ({len(last.strip())} vs {len(core.strip())} src chars); failing the job "
-            f"rather than emailing a truncated document")
+            f"attempts ({len(last.strip())} vs {len(core.strip())} src chars, min ratio "
+            f"{ratio:.0%}); failing the job rather than emailing a truncated document")
     # Content is intact but the run-formatting markers never survived. §4.2 permits minor
     # inline-format shifts, so ship it — recompose repairs what it can and otherwise strips
     # cleanly (no visible marker, no wrong run inheriting the paragraph's style).
@@ -915,7 +936,7 @@ async def _translate_text_native(
             sliced = slice_glossary(core, source_lang, lang, user_glossary, base_terms=glossary_terms)
             covered += len(sliced)
             translated = await _translate_unit(
-                core, source_name=source_name, target_name=target_name,
+                core, source_name=source_name, target_name=target_name, target_lang=lang,
                 ctx_before="", ctx_after="", sliced=sliced,
                 system_prompt=system_prompt, review_prompt=review_prompt, chain=chain)
             parts.append(translated.rstrip("\n") + trailing)
@@ -942,7 +963,7 @@ async def _translate_structural(
             sliced = slice_glossary(core, source_lang, lang, user_glossary, base_terms=glossary_terms)
             covered += len(sliced)
             translated = await _translate_unit(
-                core, source_name=source_name, target_name=target_name,
+                core, source_name=source_name, target_name=target_name, target_lang=lang,
                 ctx_before=ctx_before, ctx_after=ctx_after, sliced=sliced,
                 system_prompt=system_prompt, review_prompt=review_prompt, chain=chain)
             segs[i].setdefault("out", {})[lang] = translated.rstrip("\n") + trailing
