@@ -13,8 +13,14 @@ a translated XLIFF back into the original. We reuse only its **extract** and
 **merge**; the app's own two-pass translation loop runs unchanged in between.
 
 The bridge is the interesting part: Okapi protects inline formatting with XLIFF
-``<bpt>/<ept>`` paired codes, which map 1:1 to the app's own ``⟦k⟧…⟦/k⟧`` run
-markers — so ``translate()`` sees exactly the marker shape it already handles.
+``<bpt>/<ept>`` paired codes plus standalone ``<ph>/<it>/<x>`` codes. We present
+these to the LLM as **XLIFF-generic tags** — ``<g id="k">…</g>`` (paired) and
+``<x id="k"/>`` (standalone), ADR-022 — the same shape ``translate()`` uses for
+the python engine. On merge we deep-copy the **original** ``<bpt>/<ept>`` back into
+``<target>``, so Tikal always receives its own native codes; the ``<g>/<x>`` tags
+are only the LLM-facing wire format. ``_build_target`` **guarantees balanced codes**
+(or degrades that unit to plain text), so one mangled tag can never leave a dangling
+code that aborts ``tikal -m`` for the whole document.
 
 Tikal is invoked in-container via ``subprocess`` (a Java CLI bundled in the image,
 never a host CLI — same pattern as pypandoc→pandoc). ``OKAPI_LIB`` points at the
@@ -82,55 +88,112 @@ def _tikal(args: list[str], cwd: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Bridge: XLIFF inline codes  <->  app markers ⟦k⟧…⟦/k⟧
+# Bridge: XLIFF inline codes  <->  LLM-facing tags <g id="k">…</g> / <x id="k"/>
 # ---------------------------------------------------------------------------
+
+# XLIFF-generic tags (ADR-022). ASCII + non-mirror, tolerant of the loose spacing /
+# dropped quotes the model sometimes emits. One alternation, three shapes:
+#   open  <g id="k">   → group "open"
+#   close </g>         → neither group set
+#   x     <x id="k"/>  → group "x"
+_TAG_RE = re.compile(
+    r'<\s*g\s+id\s*=\s*"?(?P<open>\d+)"?\s*>'
+    r'|<\s*/\s*g\s*>'
+    r'|<\s*x\s+id\s*=\s*"?(?P<x>\d+)"?\s*/?\s*>'
+)
+_TAG_ANY = re.compile(r'<\s*/?\s*[gx](?:\s+id\s*=\s*"?\d+"?)?\s*/?\s*>')
 
 
 def _source_to_core(source_el: Any) -> tuple[str, list[dict[str, Any]]]:
-    """Convert a ``<source>`` (mixed text + inline codes) to the app's marker string.
+    """Convert a ``<source>`` (mixed text + inline codes) to the LLM-facing tag string.
 
-    Each paired ``bpt/ept`` becomes ``⟦k⟧…⟦/k⟧``; each standalone code (ph/it/x)
-    becomes an empty ``⟦k⟧⟦/k⟧`` at its position. ``codes[k]`` holds the element(s)
-    to re-emit on the open / close marker at recompose."""
+    Each paired ``bpt/ept`` becomes ``<g id="k">…</g>``; each standalone code (ph/it/x)
+    becomes ``<x id="k"/>`` at its position. ``codes[k]`` holds the element(s) to
+    re-emit on the open / close tag at recompose."""
     codes: list[dict[str, Any]] = []
     id2k: dict[str, int] = {}
-    parts: list[tuple[str, Any]] = []
+    parts: list[str] = []
     if source_el.text:
-        parts.append(("t", source_el.text))
+        parts.append(source_el.text)
     for child in source_el:
         local = child.tag.split("}")[-1]
         if local == "bpt":
             k = len(codes); id2k[child.get("id")] = k
             codes.append({"open": child, "close": None})
-            parts.append(("open", k))
+            parts.append('<g id="%d">' % k)
         elif local == "ept":
             k = id2k.get(child.get("id"))
             if k is None:  # orphan close — emit as a self-contained standalone
                 k = len(codes); codes.append({"open": child, "close": None})
-                parts.append(("open", k)); parts.append(("close", k))
+                parts.append('<x id="%d"/>' % k)
             else:
                 codes[k]["close"] = child
-                parts.append(("close", k))
+                parts.append("</g>")
         elif local in ("ph", "it", "x", "bx", "ex"):
             k = len(codes); codes.append({"open": child, "close": None})
-            parts.append(("open", k)); parts.append(("close", k))
+            parts.append('<x id="%d"/>' % k)
         else:
             raise ValueError("unexpected inline code <%s>" % local)
         if child.tail:
-            parts.append(("t", child.tail))
-    core = "".join(
-        v if t == "t" else ("⟦%d⟧" % v if t == "open" else "⟦/%d⟧" % v)
-        for t, v in parts
-    )
-    return core, codes
+            parts.append(child.tail)
+    return "".join(parts), codes
 
 
 def _build_target(target_el: Any, translated: str, codes: list[dict[str, Any]]) -> None:
-    """Rebuild ``<target>`` from the translated marker string, restoring inline
-    codes. Falls back to plain text (markers stripped) if a marker is broken."""
+    """Rebuild ``<target>`` from the translated tag string, restoring inline codes.
+
+    Guarantees **balanced** XLIFF codes: the tags are validated with a stack (spans
+    are sequential, non-nested), and on any imbalance — a dangling ``<g>``, an
+    unmatched ``</g>``, a duplicate or out-of-range id — the whole unit degrades to
+    plain text (tags stripped, no codes). A target with *missing* codes only makes
+    ``tikal -m`` warn; a *dangling* code makes it abort the whole merge, so we never
+    emit one."""
+    # Tokenise into text / open(k) / close / x(k).
+    tokens: list[tuple[str, Any]] = []
+    pos = 0
+    for m in _TAG_RE.finditer(translated):
+        if m.start() > pos:
+            tokens.append(("t", translated[pos:m.start()]))
+        if m.group("open") is not None:
+            tokens.append(("open", int(m.group("open"))))
+        elif m.group("x") is not None:
+            tokens.append(("x", int(m.group("x"))))
+        else:
+            tokens.append(("close", None))
+        pos = m.end()
+    if pos < len(translated):
+        tokens.append(("t", translated[pos:]))
+
+    # Validate balance; resolve each close to the id it closes.
+    stack: list[int] = []
+    used: set[int] = set()
+    resolved: list[tuple[str, Any]] = []
+    ok = True
+    for kind, val in tokens:
+        if kind == "open":
+            if not (0 <= val < len(codes)) or codes[val]["close"] is None or val in used:
+                ok = False; break
+            used.add(val); stack.append(val); resolved.append(("open", val))
+        elif kind == "close":
+            if not stack:
+                ok = False; break
+            resolved.append(("close", stack.pop()))
+        elif kind == "x":
+            if not (0 <= val < len(codes)) or val in used:
+                ok = False; break
+            used.add(val); resolved.append(("x", val))
+        else:
+            resolved.append(("t", val))
+    if stack:
+        ok = False
+
     for c in list(target_el):
         target_el.remove(c)
     target_el.text = None
+    if not ok:
+        target_el.text = _TAG_ANY.sub("", translated)
+        return
+
     last: list[Any] = [None]
 
     def add_text(s: str) -> None:
@@ -141,22 +204,14 @@ def _build_target(target_el: Any, translated: str, codes: list[dict[str, Any]]) 
         else:
             last[0].tail = (last[0].tail or "") + s
 
-    try:
-        for tok in re.split(r"(⟦/?\d+⟧)", translated):
-            if not tok:
-                continue
-            m = re.fullmatch(r"⟦(/?)(\d+)⟧", tok)
-            if m:
-                el = codes[int(m.group(2))]["close" if m.group(1) else "open"]
-                if el is not None:
-                    c = copy.deepcopy(el); c.tail = None
-                    target_el.append(c); last[0] = c
-            else:
-                add_text(tok)
-    except (IndexError, KeyError):
-        for c in list(target_el):
-            target_el.remove(c)
-        target_el.text = re.sub(r"⟦/?\d+⟧", "", translated)
+    for kind, val in resolved:
+        if kind == "t":
+            add_text(val)
+            continue
+        el = codes[val]["close" if kind == "close" else "open"]
+        if el is not None:
+            c = copy.deepcopy(el); c.tail = None
+            target_el.append(c); last[0] = c
 
 
 # ---------------------------------------------------------------------------

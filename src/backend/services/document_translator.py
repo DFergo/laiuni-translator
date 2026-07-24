@@ -171,26 +171,18 @@ def _segment(text: str, fmt: str) -> list[dict[str, Any]]:
 # hyperlinks) is preserved for free. The only thing lost by the old "dump all
 # text in run[0]" was **inline run formatting** (bold/italic/highlight/color/size)
 # when a paragraph mixed formats. So we translate each paragraph carrying inline
-# **markers** ⟦i⟧…⟦/i⟧ around each formatting span, and on recompose we put each
+# **tags** <g id="i">…</g> around each formatting span, and on recompose we put each
 # translated span back into its own run (keeping that run's full rPr). Runs that
 # carry a drawing/field are opaque (kept verbatim → inline images survive).
-_MARK_RE = re.compile(r"⟦(\d+)⟧(.*?)⟦/\1⟧", re.DOTALL)
+#
+# The tags are XLIFF-generic (ADR-022): <g id="n">…</g> paired, <x id="n"/> standalone.
+# ASCII + non-mirror, so — unlike the old ⟦ ⟧ brackets — the model can't swap open/close
+# (that handedness bug is designed out; the repair pass it needed is gone). Parsing is
+# tolerant of the loose spacing / dropped quotes the model sometimes emits.
+_TAG_PAIR = re.compile(r'<\s*g\s+id\s*=\s*"?(\d+)"?\s*>(.*?)<\s*/\s*g\s*>', re.DOTALL)
+_TAG_OPEN = re.compile(r'<\s*g\s+id\s*=\s*"?(\d+)"?\s*>')
+_TAG_ANY = re.compile(r'<\s*/?\s*[gx](?:\s+id\s*=\s*"?\d+"?)?\s*/?\s*>')
 _XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
-
-# The sentinel brackets ⟦ (U+27E6) / ⟧ (U+27E7) differ only by mirroring, and the
-# model occasionally emits the wrong-handed one at low temperature (observed: ⟧/2⟧
-# for the closing ⟦/2⟧), which breaks _parse_markers and collapses a paragraph into a
-# single run. Neither glyph occurs in real prose, so any bracket-digit-bracket token
-# can be normalised to canonical handedness. Repair the close form first (it carries
-# the "/"), then the open form — so a repaired ⟦/i⟧ is not re-matched as an opener.
-_MARK_REPAIR_CLOSE = re.compile(r"[⟦⟧]\s*/\s*(\d+)\s*[⟦⟧]")
-_MARK_REPAIR_OPEN = re.compile(r"[⟦⟧]\s*(\d+)\s*[⟦⟧]")
-
-
-def _repair_markers(text: str) -> str:
-    """Normalise wrong-handed / loosely-spaced formatting markers to ⟦i⟧ / ⟦/i⟧."""
-    text = _MARK_REPAIR_CLOSE.sub(lambda m: f"⟦/{m.group(1)}⟧", text)
-    return _MARK_REPAIR_OPEN.sub(lambda m: f"⟦{m.group(1)}⟧", text)
 
 
 def _run_text(r: Any, qn: Any) -> str:
@@ -244,9 +236,10 @@ def _set_run_text(r: Any, text: str, qn: Any, OxmlElement: Any) -> None:
 
 
 def _parse_markers(text: str, n: int) -> list[str] | None:
-    """Recover the n translated spans from ⟦i⟧…⟦/i⟧; None if any is missing."""
+    """Recover the n translated spans from <g id="i">…</g>; None if any is missing.
+    Spans are sequential (non-nested), so the first </g> closes the current <g>."""
     found: dict[int, str] = {}
-    for m in _MARK_RE.finditer(text):
+    for m in _TAG_PAIR.finditer(text):
         i = int(m.group(1))
         if 0 <= i < n and i not in found:
             found[i] = m.group(2)
@@ -254,13 +247,13 @@ def _parse_markers(text: str, n: int) -> list[str] | None:
 
 
 def _strip_markers(text: str) -> str:
-    text = _repair_markers(text)
-    return re.sub(r"⟦/?\d+⟧", "", _MARK_RE.sub(lambda m: m.group(2), text))
+    """Drop every <g>/<x> tag, keeping the inner text (plain-text fallback)."""
+    return _TAG_ANY.sub("", text)
 
 
 def _serialize_p(p: Any, qn: Any) -> tuple[str, bool]:
     """Return (text-for-translation, translatable). One translatable span → plain
-    text; several → each wrapped in ⟦i⟧…⟦/i⟧ so formatting boundaries survive."""
+    text; several → each wrapped in <g id="i">…</g> so formatting boundaries survive."""
     spans = _p_spans(p, qn)
     trans = [s for s in spans if s["kind"] in ("text", "link")]
     texts = [_span_text(s, qn) for s in trans]
@@ -269,12 +262,12 @@ def _serialize_p(p: Any, qn: Any) -> tuple[str, bool]:
         return full, False
     if len(trans) <= 1:
         return full, True
-    return "".join(f"⟦{i}⟧{t}⟦/{i}⟧" for i, t in enumerate(texts)), True
+    return "".join(f'<g id="{i}">{t}</g>' for i, t in enumerate(texts)), True
 
 
 def _rebuild_p(p: Any, translated: str, qn: Any, OxmlElement: Any) -> None:
     """Put the translated text back, one run per formatting span (each keeps its
-    own rPr). If the markers came back broken, fall back to all-text-in-first-run
+    own rPr). If the tags came back broken, fall back to all-text-in-first-run
     (never worse than the old behaviour)."""
     trans = [s for s in _p_spans(p, qn) if s["kind"] in ("text", "link")]
     if not trans:
@@ -283,8 +276,6 @@ def _rebuild_p(p: Any, translated: str, qn: Any, OxmlElement: Any) -> None:
         texts: list[str] = [translated]
     else:
         parsed = _parse_markers(translated, len(trans))
-        if parsed is None:  # a corrupted bracket — normalise handedness and retry
-            parsed = _parse_markers(_repair_markers(translated), len(trans))
         texts = parsed if parsed is not None else [_strip_markers(translated)] + [""] * (len(trans) - 1)
     for span, text in zip(trans, texts):
         runs = span["runs"]
@@ -511,7 +502,7 @@ def _pptx_serialize_p(para: Any, qn: Any) -> tuple[str, bool]:
         return full, False
     if len(spans) <= 1:
         return full, True
-    return "".join(f"⟦{i}⟧{t}⟦/{i}⟧" for i, t in enumerate(texts)), True
+    return "".join(f'<g id="{i}">{t}</g>' for i, t in enumerate(texts)), True
 
 
 def _pptx_rebuild_p(para: Any, translated: str, qn: Any) -> None:
@@ -523,8 +514,6 @@ def _pptx_rebuild_p(para: Any, translated: str, qn: Any) -> None:
         texts: list[str] = [translated]
     else:
         parsed = _parse_markers(translated, len(spans))
-        if parsed is None:  # a corrupted bracket — normalise handedness and retry
-            parsed = _parse_markers(_repair_markers(translated), len(spans))
         texts = parsed if parsed is not None else [_strip_markers(translated)] + [""] * (len(spans) - 1)
     for span, text in zip(spans, texts):
         runs = span["runs"]
@@ -666,16 +655,17 @@ def _resolve_chain(
 
 
 def _markers_intact(core: str, out: str) -> bool:
-    """True if every ⟦i⟧…⟦/i⟧ span the unit was given survives, intact, in the output
-    (after handedness repair). Structure-native docx/pptx paragraphs carry these
-    run-formatting markers; the model occasionally corrupts a bracket, which — undetected —
-    collapses the paragraph into one run (and leaks the broken marker into the text).
-    Checking here lets the guard retry the unit before it reaches recompose. A no-op for
-    text-native units (no markers in ``core``)."""
-    expected = len({int(m.group(1)) for m in re.finditer(r"⟦(\d+)⟧", core)})
+    """True if every paired-span id `<g id="i">…</g>` the unit was given survives,
+    balanced, in the output. Structure-native docx/pptx (and Okapi) paragraphs carry
+    these run-formatting tags; when the model drops or unbalances one — undetected — the
+    paragraph collapses into a single run. Checking here lets the guard retry the unit
+    before it reaches recompose. Ignores standalone `<x id>` codes (their loss is
+    non-fatal). A no-op for text-native units (no tags in ``core``)."""
+    expected = {int(m.group(1)) for m in _TAG_OPEN.finditer(core)}
     if not expected:
         return True
-    return _parse_markers(_repair_markers(out), expected) is not None
+    survived = {int(m.group(1)) for m in _TAG_PAIR.finditer(out)}
+    return expected <= survived
 
 
 def _bump_temperature(chain: list[dict[str, Any]], attempt: int) -> list[dict[str, Any]]:
