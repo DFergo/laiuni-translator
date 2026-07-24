@@ -159,6 +159,21 @@ def _segment(text: str, fmt: str) -> list[dict[str, Any]]:
 _MARK_RE = re.compile(r"⟦(\d+)⟧(.*?)⟦/\1⟧", re.DOTALL)
 _XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
 
+# The sentinel brackets ⟦ (U+27E6) / ⟧ (U+27E7) differ only by mirroring, and the
+# model occasionally emits the wrong-handed one at low temperature (observed: ⟧/2⟧
+# for the closing ⟦/2⟧), which breaks _parse_markers and collapses a paragraph into a
+# single run. Neither glyph occurs in real prose, so any bracket-digit-bracket token
+# can be normalised to canonical handedness. Repair the close form first (it carries
+# the "/"), then the open form — so a repaired ⟦/i⟧ is not re-matched as an opener.
+_MARK_REPAIR_CLOSE = re.compile(r"[⟦⟧]\s*/\s*(\d+)\s*[⟦⟧]")
+_MARK_REPAIR_OPEN = re.compile(r"[⟦⟧]\s*(\d+)\s*[⟦⟧]")
+
+
+def _repair_markers(text: str) -> str:
+    """Normalise wrong-handed / loosely-spaced formatting markers to ⟦i⟧ / ⟦/i⟧."""
+    text = _MARK_REPAIR_CLOSE.sub(lambda m: f"⟦/{m.group(1)}⟧", text)
+    return _MARK_REPAIR_OPEN.sub(lambda m: f"⟦{m.group(1)}⟧", text)
+
 
 def _run_text(r: Any, qn: Any) -> str:
     return "".join(t.text or "" for t in r.findall(qn("w:t")))
@@ -221,6 +236,7 @@ def _parse_markers(text: str, n: int) -> list[str] | None:
 
 
 def _strip_markers(text: str) -> str:
+    text = _repair_markers(text)
     return re.sub(r"⟦/?\d+⟧", "", _MARK_RE.sub(lambda m: m.group(2), text))
 
 
@@ -249,6 +265,8 @@ def _rebuild_p(p: Any, translated: str, qn: Any, OxmlElement: Any) -> None:
         texts: list[str] = [translated]
     else:
         parsed = _parse_markers(translated, len(trans))
+        if parsed is None:  # a corrupted bracket — normalise handedness and retry
+            parsed = _parse_markers(_repair_markers(translated), len(trans))
         texts = parsed if parsed is not None else [_strip_markers(translated)] + [""] * (len(trans) - 1)
     for span, text in zip(trans, texts):
         runs = span["runs"]
@@ -487,6 +505,8 @@ def _pptx_rebuild_p(para: Any, translated: str, qn: Any) -> None:
         texts: list[str] = [translated]
     else:
         parsed = _parse_markers(translated, len(spans))
+        if parsed is None:  # a corrupted bracket — normalise handedness and retry
+            parsed = _parse_markers(_repair_markers(translated), len(spans))
         texts = parsed if parsed is not None else [_strip_markers(translated)] + [""] * (len(spans) - 1)
     for span, text in zip(spans, texts):
         runs = span["runs"]
@@ -546,6 +566,18 @@ def _default_out(ir: dict[str, Any], target_lang: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _format_engine() -> str:
+    """Admin Settings ``format_engine`` (ADR-021): ``python`` | ``okapi`` |
+    ``okapi_noopt``. Selects the extract/recompose engine for Office formats;
+    defaults to ``python`` (unchanged behaviour) when settings are unavailable."""
+    try:
+        from src.api.v1.admin.settings import get_setting
+        engine = get_setting("format_engine", "python")
+    except Exception:
+        engine = "python"
+    return engine if engine in ("python", "okapi", "okapi_noopt") else "python"
+
+
 def extract(path: str, options: dict[str, Any] | None = None) -> dict[str, Any]:
     """Build the IR for a document, dispatching on format (Tier 1 + Tier 2).
 
@@ -554,6 +586,12 @@ def extract(path: str, options: dict[str, Any] | None = None) -> dict[str, Any]:
     options = options or {}
     p = Path(path)
     suf = p.suffix.lower()
+    # Okapi/Tikal engine (ADR-021), when selected, handles the Office formats;
+    # text-native (.txt/.md) always stay on the python path (byte-stable, no gain).
+    engine = _format_engine()
+    if engine != "python" and suf in _DOCX_SUFFIXES | _RTF_SUFFIXES | _PPTX_SUFFIXES:
+        from src.services import okapi
+        return okapi.extract(str(p), options, style_optimisation=(engine == "okapi"))
     if suf in _DOCX_SUFFIXES:
         return _extract_docx(p, options.get("translate_footnotes", True))
     if suf in _RTF_SUFFIXES:
@@ -609,6 +647,31 @@ def _resolve_chain(
     return [_engine_config(get_llm_settings(frontend_id), connection_id, model)]
 
 
+def _markers_intact(core: str, out: str) -> bool:
+    """True if every ⟦i⟧…⟦/i⟧ span the unit was given survives, intact, in the output
+    (after handedness repair). Structure-native docx/pptx paragraphs carry these
+    run-formatting markers; the model occasionally corrupts a bracket, which — undetected —
+    collapses the paragraph into one run (and leaks the broken marker into the text).
+    Checking here lets the guard retry the unit before it reaches recompose. A no-op for
+    text-native units (no markers in ``core``)."""
+    expected = len({int(m.group(1)) for m in re.finditer(r"⟦(\d+)⟧", core)})
+    if not expected:
+        return True
+    return _parse_markers(_repair_markers(out), expected) is not None
+
+
+def _bump_temperature(chain: list[dict[str, Any]], attempt: int) -> list[dict[str, Any]]:
+    """A retry chain with raised temperature. The corruption a retry must escape is a
+    near-deterministic decoding error at low temperature (temp 0.1 ⇒ same input, same
+    mistake); nudging the temperature up perturbs it without changing the baseline."""
+    bumped = []
+    for cfg in chain:
+        c = dict(cfg)
+        c["temperature"] = min(0.6, (cfg.get("temperature") or 0.1) + 0.2 * (attempt - 1))
+        bumped.append(c)
+    return bumped
+
+
 async def _translate_unit(
     core: str,
     *,
@@ -621,24 +684,38 @@ async def _translate_unit(
     review_prompt: str,
     chain: list[dict[str, Any]],
 ) -> str:
-    """Translate one unit with a completeness guard: retry when the result comes
-    back empty/truncated, and fail loudly rather than ship a hole (queso-suizo bug)."""
+    """Translate one unit with two guards: completeness (retry when empty/truncated, then
+    fail loudly rather than ship a hole — queso-suizo bug) and marker integrity (retry when
+    the run-formatting markers came back corrupted). Retries nudge the temperature up so a
+    deterministic low-temperature failure doesn't simply reproduce."""
     last = ""
     for attempt in range(1, _TRANSLATION_MAX_ATTEMPTS + 1):
+        attempt_chain = chain if attempt == 1 else _bump_temperature(chain, attempt)
         last = await _translate_unit_once(
             core, source_name=source_name, target_name=target_name,
             ctx_before=ctx_before, ctx_after=ctx_after, sliced=sliced,
-            system_prompt=system_prompt, review_prompt=review_prompt, chain=chain)
-        if not _looks_truncated(core, last):
+            system_prompt=system_prompt, review_prompt=review_prompt, chain=attempt_chain)
+        truncated = _looks_truncated(core, last)
+        if not truncated and _markers_intact(core, last):
             return last
+        reason = (f"looks incomplete ({len(last.strip())} vs {len(core.strip())} src chars)"
+                  if truncated else "corrupted its formatting markers")
         logger.warning(
-            f"Translation → {target_name} looks incomplete "
-            f"({len(last.strip())} vs {len(core.strip())} src chars), "
+            f"Translation → {target_name} {reason}, "
             f"attempt {attempt}/{_TRANSLATION_MAX_ATTEMPTS} — retrying")
-    raise ValueError(
-        f"Translation → {target_name} still incomplete after {_TRANSLATION_MAX_ATTEMPTS} "
-        f"attempts ({len(last.strip())} vs {len(core.strip())} src chars); failing the job "
-        f"rather than emailing a truncated document")
+    # Missing content is unshippable (queso-suizo) → fail the job loudly.
+    if _looks_truncated(core, last):
+        raise ValueError(
+            f"Translation → {target_name} still incomplete after {_TRANSLATION_MAX_ATTEMPTS} "
+            f"attempts ({len(last.strip())} vs {len(core.strip())} src chars); failing the job "
+            f"rather than emailing a truncated document")
+    # Content is intact but the run-formatting markers never survived. §4.2 permits minor
+    # inline-format shifts, so ship it — recompose repairs what it can and otherwise strips
+    # cleanly (no visible marker, no wrong run inheriting the paragraph's style).
+    logger.warning(
+        f"Translation → {target_name} kept corrupting formatting markers after "
+        f"{_TRANSLATION_MAX_ATTEMPTS} attempts; inline formatting for this unit may degrade")
+    return last
 
 
 async def _translate_unit_once(
@@ -876,6 +953,9 @@ async def _translate_structural(
 def recompose(ir: dict[str, Any], target_lang: str, out_path: str | None = None) -> str:
     """Rebuild the document for one target language and write it, dispatching on
     format. Non-translatable / untranslated segments fall back to source."""
+    if ir.get("_okapi"):  # Okapi engine (ADR-021) — inject targets + Tikal merge
+        from src.services import okapi
+        return okapi.recompose(ir, target_lang, out_path)
     fmt = ir["format"]
     if fmt == "docx":
         return _recompose_docx(ir, target_lang, out_path)

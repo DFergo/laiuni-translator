@@ -77,6 +77,7 @@ export interface AppSettings {
   schedule_window_duration_hours: number
   schedule_mode: 'scheduled' | 'immediate' | 'both'
   batch_max: number
+  format_engine: 'python' | 'okapi' | 'okapi_noopt'
 }
 export const getAppSettings = (): Promise<AppSettings> => request('/admin/settings');
 export const updateAppSettings = (data: Partial<AppSettings>): Promise<AppSettings> =>

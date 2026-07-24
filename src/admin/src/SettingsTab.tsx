@@ -77,6 +77,15 @@ export default function SettingsTab() {
                 </select>
                 <p className="text-xs text-gray-400 mt-1">Portal UI language (hardcoded i18n); per-frontend override in the Frontends tab.</p>
               </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Document engine (.docx / .pptx / .rtf)</label>
+                <select value={app.format_engine} onChange={e => setApp({ ...app, format_engine: e.target.value as AppSettings['format_engine'] })} className={inputCls}>
+                  <option value="python">Python (python-docx/pptx/pandoc) — default</option>
+                  <option value="okapi">Okapi/Tikal — style optimisation ON</option>
+                  <option value="okapi_noopt">Okapi/Tikal — style optimisation OFF (keep original styles)</option>
+                </select>
+                <p className="text-xs text-gray-400 mt-1">Extraction/recomposition engine for Office formats. Okapi needs the Okapi-enabled backend image. .txt/.md always use Python.</p>
+              </div>
             </div>
             <button onClick={saveApp} disabled={saving} className="mt-4 bg-uni-blue text-white rounded-lg px-5 py-2 text-sm font-medium hover:opacity-90 disabled:opacity-50">
               {saving ? 'Saving…' : 'Save app settings'}

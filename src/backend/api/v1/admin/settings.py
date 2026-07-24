@@ -39,6 +39,12 @@ def _defaults() -> dict[str, Any]:
         "schedule_mode": "both",
         # Max documents per multiple-translation submission (§13.4), cap 10.
         "batch_max": 5,
+        # Extraction/recomposition engine for Office formats (ADR-021):
+        #   python      — in-process python-docx/pptx/pandoc (default, unchanged)
+        #   okapi       — Okapi/Tikal, allowWordStyleOptimisation ON  (Okapi default)
+        #   okapi_noopt — Okapi/Tikal, allowWordStyleOptimisation OFF (keeps styles)
+        # .txt/.md always use the python path regardless of this setting.
+        "format_engine": "python",
     }
 
 
@@ -65,6 +71,15 @@ def get_setting(key: str, default: Any = None) -> Any:
 
 def retention_hours() -> int:
     return int(get_setting("retention_hours", config.retention_hours))
+
+
+_FORMAT_ENGINES = ("python", "okapi", "okapi_noopt")
+
+
+def format_engine() -> str:
+    """Effective Office extract/recompose engine (ADR-021), validated."""
+    v = get_setting("format_engine", "python")
+    return v if v in _FORMAT_ENGINES else "python"
 
 
 _SCHEDULE_MODES = ("scheduled", "immediate", "both")
@@ -106,6 +121,7 @@ class SettingsRequest(BaseModel):
     schedule_window_duration_hours: int | None = None
     schedule_mode: str | None = None
     batch_max: int | None = None
+    format_engine: str | None = None
 
 
 @router.get("")

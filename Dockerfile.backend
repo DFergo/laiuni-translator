@@ -16,8 +16,23 @@ WORKDIR /app
 
 # In-container document tooling (Sprint 7, lesson #11): pandoc powers .rtf via
 # pypandoc; .docx uses python-docx (pip). Never a host CLI.
-RUN apt-get update && apt-get install -y --no-install-recommends pandoc \
+# Java (headless JRE) powers the optional Okapi/Tikal engine (ADR-021) — an
+# in-container CLI, same pattern as pypandoc→pandoc, never a host CLI.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pandoc openjdk-17-jre-headless curl unzip \
     && rm -rf /var/lib/apt/lists/*
+
+# Okapi Tikal (ADR-021): the localisation filter framework used as the alternative
+# extract/recompose engine. The all-platforms LIB distribution is pure Java (no
+# SWT/GUI) → architecture-agnostic; pinned + checksummed for reproducible builds.
+ENV OKAPI_VERSION=1.48.0
+ENV OKAPI_SHA256=b522770d10d6b1520127d66861cb57374d443951b6a1a2cbf5b7d5191f8e2706
+RUN curl -fsSL -o /tmp/okapi.zip \
+      "https://okapiframework.org/binaries/main/${OKAPI_VERSION}/okapi-lib_all-platforms_${OKAPI_VERSION}.zip" \
+ && echo "${OKAPI_SHA256}  /tmp/okapi.zip" | sha256sum -c - \
+ && mkdir -p /opt/okapi && unzip -q /tmp/okapi.zip -d /opt/okapi && rm /tmp/okapi.zip
+ENV OKAPI_LIB=/opt/okapi/lib
+ENV OKAPI_CONFIG_DIR=/app/config/okapi
 
 # Install dependencies (the old RAG stack — torch / sentence-transformers /
 # llama-index — was removed after the Sprint 1 refactor; no longer installed)
@@ -27,6 +42,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY src/backend/ ./src/
 COPY config/deployment_backend.json ./config/deployment_backend.json
+# Versioned Okapi filter configs (ADR-021): the allowWordStyleOptimisation=OFF
+# variant lives here and is referenced at runtime via OKAPI_CONFIG_DIR.
+COPY config/okapi/ ./config/okapi/
 
 # Copy built admin app
 COPY --from=admin-builder /app/admin/dist /app/admin/dist

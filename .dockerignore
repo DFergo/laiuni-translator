@@ -1,0 +1,9 @@
+# Keep the build context lean (ADR-021 pre-built image).
+**/node_modules
+**/dist
+**/__pycache__
+**/*.pyc
+data/
+documents/
+.env
+.git

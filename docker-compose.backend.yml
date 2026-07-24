@@ -1,8 +1,13 @@
 services:
   laiuni-backend:
-    build:
-      context: .
-      dockerfile: Dockerfile.backend
+    # Pre-built image (ADR-021, Portainer option B): the CI builds Dockerfile.backend
+    # — bundling Java + Okapi/Tikal — and pushes it to GHCR; Portainer pulls this tag.
+    image: ghcr.io/dfergo/laiuni-translator-backend:latest
+    pull_policy: always
+    # Local dev — build instead of pulling (comment `image:`/`pull_policy:` above):
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile.backend
     # BACKEND_PORT is REQUIRED — deploy fails clearly if it is not set.
     # Host port for the admin panel + /health. The backend is not internet-facing
     # (pull-inverse): this is local/admin access only, never exposed via Cloudflared.
