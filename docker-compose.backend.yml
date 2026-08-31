@@ -1,5 +1,6 @@
 services:
   laiuni-backend:
+    restart: unless-stopped
     # Pre-built image (ADR-021, Portainer option B): the CI builds Dockerfile.backend
     # — bundling Java + Okapi/Tikal — and pushes it to GHCR; Portainer pulls this tag.
     image: ghcr.io/dfergo/laiuni-translator-backend:latest

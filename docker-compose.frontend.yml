@@ -1,5 +1,6 @@
 services:
   laiuni-frontend:
+    restart: unless-stopped
     build:
       context: .
       dockerfile: Dockerfile.frontend
