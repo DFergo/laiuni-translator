@@ -152,7 +152,7 @@ export async function registerFrontend(url: string, name: string = ''): Promise<
   });
 }
 
-export async function updateFrontend(id: string, data: { enabled?: boolean; name?: string }): Promise<{ frontend: Frontend }> {
+export async function updateFrontend(id: string, data: { enabled?: boolean; name?: string; url?: string }): Promise<{ frontend: Frontend }> {
   return request(`/admin/frontends/${id}`, {
     method: 'PUT',
     body: JSON.stringify(data),

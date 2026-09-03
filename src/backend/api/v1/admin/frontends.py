@@ -24,6 +24,7 @@ class RegisterRequest(BaseModel):
 class UpdateRequest(BaseModel):
     enabled: bool | None = None
     name: str | None = None
+    url: str | None = None
 
 
 @router.get("")
@@ -121,11 +122,36 @@ async def _push_config_to_sidecar(frontend_id: str):
 
 
 @router.put("/{frontend_id}")
-async def update_frontend(frontend_id: str, req: UpdateRequest, _: dict = Depends(require_admin)):
-    updates = {k: v for k, v in req.model_dump().items() if v is not None}
-    frontend = registry.update(frontend_id, **updates)
-    if not frontend:
+async def update_frontend(frontend_id: str, req: UpdateRequest, verify: bool = True, _: dict = Depends(require_admin)):
+    """Update name/enabled/url. `url` preserves the id — and therefore all
+    campaign config (profiles/auth/branding/glossary/...) tied to it — instead
+    of forcing a delete+re-register that would mint a new id (office DHCP
+    without a reservation is the recurring case: the frontend's LAN IP rotates
+    and the registry is left pointing at the old one).
+
+    `verify=false` skips only the reachability probe (for a launchd
+    reconciler that resolves the new IP on the host); the URL-collision check
+    always runs.
+    """
+    if not registry.get(frontend_id):
         raise HTTPException(status_code=404, detail="Frontend not found")
+
+    updates = {k: v for k, v in req.model_dump().items() if v is not None}
+
+    if "url" in updates:
+        new_url = updates["url"].rstrip("/")
+        if registry.find_by_url(new_url, exclude=frontend_id):
+            raise HTTPException(status_code=409, detail=f"URL {new_url} is already registered to another frontend")
+        if verify:
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    resp = await client.get(f"{new_url}/internal/config")
+                    resp.raise_for_status()
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Cannot reach frontend at {new_url}: {str(e)}")
+        updates["url"] = new_url
+
+    frontend = registry.update(frontend_id, **updates)
     return {"frontend": frontend}
 
 

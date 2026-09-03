@@ -78,6 +78,9 @@ export default function FrontendsTab() {
 
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
+  const [editUrl, setEditUrl] = useState('')
+  const [editError, setEditError] = useState('')
+  const [editSaving, setEditSaving] = useState(false)
 
   // Branding
   const [brandingOpen, setBrandingOpen] = useState<string | null>(null)
@@ -89,12 +92,30 @@ export default function FrontendsTab() {
   const startEdit = (f: Frontend) => {
     setEditingId(f.id)
     setEditName(f.name)
+    setEditUrl(f.url)
+    setEditError('')
   }
 
-  const saveEdit = async (id: string) => {
-    await updateFrontend(id, { name: editName })
-    setEditingId(null)
-    await refresh()
+  const saveEdit = async (f: Frontend) => {
+    setEditError('')
+    setEditSaving(true)
+    try {
+      const data: { name?: string; url?: string } = { name: editName }
+      // Only send url if it actually changed — otherwise a rename-only edit
+      // would trigger the reachability check and fail while the frontend is
+      // momentarily down.
+      const trimmedUrl = editUrl.trim().replace(/\/+$/, '')
+      if (trimmedUrl && trimmedUrl !== f.url) {
+        data.url = trimmedUrl
+      }
+      await updateFrontend(f.id, data)
+      setEditingId(null)
+      await refresh()
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : 'Update failed')
+    } finally {
+      setEditSaving(false)
+    }
   }
 
   const toggleBranding = async (id: string) => {
@@ -184,17 +205,29 @@ export default function FrontendsTab() {
                     <div className={`w-2.5 h-2.5 rounded-full ${statusColor(f.status)}`} />
                     <div>
                       {editingId === f.id ? (
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="text"
-                            value={editName}
-                            onChange={e => setEditName(e.target.value)}
-                            onKeyDown={e => e.key === 'Enter' && saveEdit(f.id)}
-                            className="border border-gray-300 rounded px-2 py-0.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
-                            autoFocus
-                          />
-                          <button onClick={() => saveEdit(f.id)} className="text-xs text-uni-blue hover:underline">Save</button>
-                          <button onClick={() => setEditingId(null)} className="text-xs text-gray-400 hover:underline">Cancel</button>
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={editName}
+                              onChange={e => setEditName(e.target.value)}
+                              placeholder="Name"
+                              className="border border-gray-300 rounded px-2 py-0.5 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
+                              autoFocus
+                            />
+                            <input
+                              type="text"
+                              value={editUrl}
+                              onChange={e => setEditUrl(e.target.value)}
+                              placeholder="http://host:port"
+                              className="border border-gray-300 rounded px-2 py-0.5 text-sm w-56 focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none"
+                            />
+                            <button onClick={() => saveEdit(f)} disabled={editSaving} className="text-xs text-uni-blue hover:underline disabled:opacity-50">
+                              {editSaving ? 'Saving...' : 'Save'}
+                            </button>
+                            <button onClick={() => setEditingId(null)} className="text-xs text-gray-400 hover:underline">Cancel</button>
+                          </div>
+                          {editError && <p className="text-uni-red text-xs">{editError}</p>}
                         </div>
                       ) : (
                         <div className="text-sm font-medium text-gray-800">

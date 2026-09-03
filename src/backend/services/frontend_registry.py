@@ -207,6 +207,13 @@ class FrontendRegistry:
     def get(self, fid: str) -> dict[str, Any] | None:
         return self._frontends.get(fid)
 
+    def find_by_url(self, url: str, exclude: str = "") -> dict[str, Any] | None:
+        """Find a frontend by (normalised) url, optionally excluding one id."""
+        for fid, f in self._frontends.items():
+            if fid != exclude and f["url"] == url:
+                return f
+        return None
+
     def list_all(self) -> list[dict[str, Any]]:
         return list(self._frontends.values())
 
