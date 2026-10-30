@@ -3,6 +3,7 @@ name: build-backend
 # Pre-built image pipeline (ADR-021, Portainer option B): build Dockerfile.backend
 # — which bundles Java + Okapi/Tikal — and push it to GHCR. Portainer pulls the
 # tag instead of building the stack itself.
+# main → :latest + :sha-<short>   (the nightly auto-updater follows :latest)
 
 on:
   push:
@@ -11,6 +12,7 @@ on:
       - 'src/**'
       - 'config/**'
       - 'Dockerfile.backend'
+      - '.dockerignore'
       - '.github/workflows/build-backend.yml'
   workflow_dispatch: {}
 

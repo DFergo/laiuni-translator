@@ -1,5 +1,5 @@
-## Stage 1: Build React app
-FROM node:20-slim AS builder
+## Stage 1: Build React app (arch-independent output → build once on the build host)
+FROM --platform=$BUILDPLATFORM node:20-slim AS builder
 
 WORKDIR /app/frontend
 

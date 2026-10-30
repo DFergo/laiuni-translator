@@ -1,9 +1,13 @@
 services:
   laiuni-frontend:
     restart: unless-stopped
-    build:
-      context: .
-      dockerfile: Dockerfile.frontend
+    # Pre-built multi-arch image (amd64 + arm64) published by the CI to GHCR.
+    image: ghcr.io/dfergo/laiuni-translator-frontend:latest
+    pull_policy: always
+    # Local dev — build instead of pulling (comment `image:`/`pull_policy:` above):
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile.frontend
     # FRONTEND_PORT is REQUIRED — deploy fails clearly if it is not set.
     # Deploy one instance per campaign, each with its own port and volume.
     ports:
