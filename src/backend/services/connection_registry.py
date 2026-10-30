@@ -92,7 +92,8 @@ class ConnectionRegistry:
         existing = self.get(connection_id)
         if not existing:
             raise ValueError(f"Connection not found: {connection_id}")
-        for key in ("type", "base_url", "api_key", "prefix_id", "model_ids", "enable"):
+        for key in ("type", "base_url", "api_key", "prefix_id", "model_ids", "enable",
+                    "provider", "prompt_cache_key", "routing"):
             if key in patch and patch[key] is not None:
                 existing[key] = patch[key]
         if existing["type"] not in VALID_TYPES:
@@ -123,6 +124,13 @@ class ConnectionRegistry:
             "prefix_id": conn.get("prefix_id") or "",
             "model_ids": conn.get("model_ids") or [],
             "enable": conn.get("enable", True),
+            # Sprint 21 — optional provider hints (see llm_capabilities.py):
+            # provider: force the provider profile ("" = infer from base_url);
+            # prompt_cache_key: send a per-job cache key (a hash) to providers that use it;
+            # routing: OpenRouter `provider` object (e.g. {"order": [...]}).
+            "provider": conn.get("provider") or "",
+            "prompt_cache_key": bool(conn.get("prompt_cache_key", False)),
+            "routing": conn.get("routing") or {},
         }
 
 

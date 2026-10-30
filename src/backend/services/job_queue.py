@@ -450,6 +450,8 @@ async def process_job(job: dict[str, Any]) -> None:
 
     job_id = job["id"]
     mark_running(job_id)
+    from src.services import llm_usage
+    usage_token = llm_usage.current_job.set(job_id)  # attributes LLM usage to this job
     try:
         out_dir = _job_dir(job_id)
         ir = extract(job["path"], job.get("options") or {})
@@ -470,10 +472,16 @@ async def process_job(job: dict[str, Any]) -> None:
         mark_done(job_id, expires_at)
         record_usage(job["owner_email"], job.get("frontend_id", ""), job["target_langs"])  # §12.9 counts only
         logger.info(f"Job {job_id} translated — {len(outputs)} language(s), expires in {retention_hours()}h")
+        for slot, c in llm_usage.job_summary(job_id).items():
+            logger.info(f"Job {job_id} LLM usage ({slot}): calls={c['calls']} prompt={c['prompt_tokens']} "
+                        f"cached={c['cached_tokens']} completion={c['completion_tokens']} "
+                        f"reasoning={c['reasoning_tokens']} hit_rate={c['hit_rate']}")
     except Exception as e:
         logger.error(f"Job {job_id} failed: {e}")
         mark_failed(job_id, str(e))
         return
+    finally:
+        llm_usage.current_job.reset(usage_token)
 
     # Notify separately: the translation already succeeded and is downloadable —
     # a mail/link failure must NOT flip the job to `failed`, but must be loud.

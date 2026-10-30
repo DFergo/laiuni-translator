@@ -108,6 +108,22 @@ Open **Admin → LLM**.
 - **Provider Connections:** a connection is an address plus credentials. Types: any OpenAI-compatible server (for example oMLX, LM Studio, vLLM, OpenRouter or OpenAI itself), an Anthropic account, or an Ollama server.
 - **Translation engine:** the connection and model used for every translation, with its temperature. The model field is a search box: type to filter the models the connection offers, or type an exact model ID.
 - **Per-Frontend engine:** a frontend can override the global choice.
+- Under each control the panel says whether it is sent, adjusted or ignored for the chosen connection and model, so no setting is a silent no-op. **Usage and prompt cache** shows prompt, cached, completion and reasoning tokens per model with the cache hit rate; each job logs its own totals when it finishes.
+
+**What each provider supports.**
+
+| | Temperature, Max Tokens | Context window | Reasoning control | Prompt cache |
+|---|---|---|---|---|
+| **Mistral API** | sent | shown, not sent | `mistral-large-4`: low/medium/high, cannot be switched off; `mistral-small`/`-medium`: off/high | automatic (best effort on short prompts) |
+| **OpenRouter** | sent (some models ignore them: the panel says which, from OpenRouter's model list) | shown, not sent | off/low/medium/high where the model supports it | depends on the provider OpenRouter routes to |
+| **OpenAI** | sent; reasoning models (o-series, gpt-5) take no temperature | not sent | low/medium/high on reasoning models | automatic |
+| **Anthropic** | sent; Max Tokens required (4096 if blank); no temperature while thinking | not sent | low/medium/high = thinking budget; off is the default | breakpoints set automatically |
+| **oMLX, LM Studio, vLLM** | sent | not sent | on/off for Qwen-family models only (`enable_thinking`); other models have no switch | server-side, if enabled |
+| **Ollama** | sent | sent (`num_ctx`) | on/off (`think`) | not reported |
+
+- **Reasoning is off by default for translation.** A reasoning pass is billed, counts against Max Tokens and can leave a unit empty (the completeness guard then retries and, if it persists, fails the job instead of shipping a hole). Where a model cannot switch it off (e.g. `mistral-large-4`), translations still work but cost more output tokens; leave Max Tokens blank or generous for such models.
+- **Provider options** (connection editor, OpenAI-compatible connections, optional): *Provider profile* when it cannot be inferred from the address; *Send a per-job prompt cache key* (a hash, never the job id); *OpenRouter routing* (`provider` object, e.g. `{"order": ["alibaba"], "allow_fallbacks": false}`).
+- If a provider rejects an optional field (reasoning setting, cache key, usage request), the call is retried once without it and the backend logs which field was dropped.
 
 **Where the model can run.** Anywhere the backend container can reach: the same machine, another machine on your network or VPN, or a cloud provider. Inside the container:
 

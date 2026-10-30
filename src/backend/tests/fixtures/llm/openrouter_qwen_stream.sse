@@ -1,0 +1,10 @@
+data: {"id":"b","choices":[{"index":0,"delta":{"role":"assistant","content":"","reasoning":"Thinking about it."},"finish_reason":null}]}
+
+data: {"id":"b","choices":[{"index":0,"delta":{"content":"Yes","reasoning":null},"finish_reason":null}]}
+
+data: {"id":"b","choices":[{"index":0,"delta":{"content":"."},"finish_reason":"stop"}]}
+
+data: {"id":"b","choices":[],"usage":{"prompt_tokens":10336,"completion_tokens":60,"total_tokens":10396,"prompt_tokens_details":{"cached_tokens":10240},"completion_tokens_details":{"reasoning_tokens":58}}}
+
+data: [DONE]
+

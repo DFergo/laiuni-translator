@@ -629,8 +629,8 @@ def _engine_config(
     settings: dict[str, Any], connection_id: str | None, model: str | None
 ) -> dict[str, Any]:
     """The single translation engine (Sprint 9 / ADR-010): connection + model +
-    temperature (default 0.1) + enable_thinking. An explicit ``connection_id`` /
-    ``model`` overrides the slot but **keeps** the slot temperature + thinking."""
+    temperature (default 0.1) + reasoning. An explicit ``connection_id`` /
+    ``model`` overrides the slot but **keeps** the slot temperature + reasoning."""
     temp = settings.get("translation_temperature")
     return {
         "connection_id": connection_id or settings.get("translation_connection") or "",
@@ -638,13 +638,20 @@ def _engine_config(
         "temperature": 0.1 if temp is None else temp,
         "max_tokens": settings.get("translation_max_tokens"),
         "num_ctx": settings.get("translation_num_ctx"),
-        # Hardcoded OFF for translation (not admin-configurable): a reasoning pass
-        # drains the output-token budget and — when the visible answer returns empty
-        # after <think> stripping — silently blanks a chunk (the "queso-suizo" bug).
-        # The adapter maps this intent to each model family's switch.
-        "enable_thinking": False,
+        # Reasoning per provider/model (Sprint 21, llm_capabilities): default "off"
+        # — a reasoning pass drains the output-token budget and can return an empty
+        # visible answer (the "queso-suizo" bug; the completeness guard then retries
+        # and fails loudly). None = provider default; some models cannot switch it
+        # off (e.g. mistral-large-4) — the admin says so.
+        "reasoning": _reasoning_level(settings.get("translation_reasoning", "off")),
         "_slot_name": "engine",
     }
+
+
+def _reasoning_level(value: str | None) -> str | None:
+    """Setting → adapter level. "default" (stored explicitly so a per-frontend
+    override can choose it) means: send nothing, provider default applies."""
+    return None if value in (None, "", "default") else value
 
 
 def _resolve_chain(

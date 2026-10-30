@@ -56,15 +56,16 @@ _DEFAULTS: dict[str, Any] = {
     "summariser_max_tokens": None,
     "summariser_num_ctx": None,
     # The single engine (Sprint 9 / ADR-010): the `translation_*` slot drives every
-    # LLM call. Temperature defaults to 0.1 (n8n parity); enable_thinking passthrough
-    # defaults to False (disable the model's reasoning pass for oMLX/Qwen).
+    # LLM call. Temperature defaults to 0.1 (n8n parity). Reasoning (Sprint 21):
+    # default|off|low|medium|high, mapped per provider/model (llm_capabilities);
+    # "off" by default — a reasoning pass can empty a chunk (queso-suizo bug).
     "translation_connection": "",
     "translation_model": "",
     "translation_temperature": 0.1,
     "translation_max_tokens": None,
     "translation_num_ctx": None,
     "translation_glossary_enabled": True,  # glossary ON by default; "ignore glossary" is off
-    "translation_enable_thinking": False,
+    "translation_reasoning": "off",
     "compression_threshold": 0.75,  # legacy — kept for migration
     "compression_first_threshold": 20000,  # first compression at N tokens
     "compression_step_size": 15000,  # compress again every N tokens after first
@@ -215,7 +216,7 @@ class LLMSettingsRequest(BaseModel):
     translation_max_tokens: int | None = None
     translation_num_ctx: int | None = None
     translation_glossary_enabled: bool | None = None
-    translation_enable_thinking: bool | None = None
+    translation_reasoning: str | None = None  # default | off | low | medium | high
     compression_threshold: float | None = None  # legacy
     compression_first_threshold: int | None = None
     compression_step_size: int | None = None
@@ -229,6 +230,16 @@ class ConnectionRequest(BaseModel):
     prefix_id: str | None = None
     model_ids: list[str] | None = None
     enable: bool | None = None
+    provider: str | None = None          # "" = infer from base_url
+    prompt_cache_key: bool | None = None
+    routing: dict[str, Any] | None = None
+
+
+def _check_reasoning(updates: dict[str, Any]):
+    from src.services.llm_capabilities import REASONING_LEVELS
+    for key, val in updates.items():
+        if key.endswith("_reasoning") and val not in (None, "default", *REASONING_LEVELS):
+            raise HTTPException(status_code=400, detail=f"{key} must be one of: default, {', '.join(REASONING_LEVELS)}")
 
 
 # --- Connections registry ---
@@ -334,6 +345,7 @@ async def update_settings(req: LLMSettingsRequest, _: dict = Depends(require_adm
     """
     current = _load_settings()
     updates = req.model_dump(exclude_unset=True)
+    _check_reasoning(updates)
     current.update(updates)
     _save_settings(current)
     logger.info(f"LLM settings updated: {list(updates.keys())}")
@@ -342,6 +354,47 @@ async def update_settings(req: LLMSettingsRequest, _: dict = Depends(require_adm
         asyncio.create_task(_warmup_ollama_slots(current))
 
     return current
+
+
+class CapabilitiesRequest(BaseModel):
+    connection: str
+    model: str = ""
+    temperature: float | None = None
+    max_tokens: int | None = None
+    num_ctx: int | None = None
+    reasoning: str | None = None
+
+
+@router.post("/capabilities")
+async def slot_capabilities(req: CapabilitiesRequest, _: dict = Depends(require_admin)):
+    """Which of the engine's controls are sent, adjusted or ignored on this
+    connection + model (Sprint 21) — so the admin never shows a silent no-op.
+    Takes the values being edited (not only the saved ones)."""
+    from src.services import llm_capabilities
+    conn = connections.get(req.connection)
+    if not conn:
+        raise HTTPException(status_code=404, detail="Connection not found")
+    values = req.model_dump()
+    if values["reasoning"] == "default":
+        values["reasoning"] = None
+    info = await llm.model_info(req.connection, req.model) if req.model else {}
+    out = llm_capabilities.describe(conn, req.model, values, info.get("supported_parameters"))
+    out["context_length"] = info.get("context_length")
+    return out
+
+
+@router.get("/usage")
+async def llm_usage_summary(_: dict = Depends(require_admin)):
+    """Token and prompt-cache usage per slot/connection/model since the last reset."""
+    from src.services import llm_usage
+    return {"rows": llm_usage.global_summary()}
+
+
+@router.post("/usage/reset")
+async def llm_usage_reset(_: dict = Depends(require_admin)):
+    from src.services import llm_usage
+    llm_usage.reset_global()
+    return {"rows": []}
 
 
 @router.post("/settings/reset")
@@ -506,6 +559,7 @@ async def get_fe_llm_settings(frontend_id: str, _: dict = Depends(require_admin)
 async def update_fe_llm_settings(frontend_id: str, req: LLMSettingsRequest, _: dict = Depends(require_admin)):
     """Update per-frontend LLM override. Only set fields are stored."""
     override = req.model_dump(exclude_unset=True)
+    _check_reasoning(override)
     if override:
         save_frontend_llm_override(frontend_id, override)
         logger.info(f"Per-frontend LLM override saved for {frontend_id}: {list(override.keys())}")

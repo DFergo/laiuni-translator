@@ -1,0 +1,12 @@
+data: {"id":"a","object":"chat.completion.chunk","model":"mistral-large-4","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+
+data: {"id":"a","object":"chat.completion.chunk","model":"mistral-large-4","choices":[{"index":0,"delta":{"content":[{"type":"thinking","thinking":[{"type":"text","text":"The user greets me; answer briefly."}]}]},"finish_reason":null}]}
+
+data: {"id":"a","object":"chat.completion.chunk","model":"mistral-large-4","choices":[{"index":0,"delta":{"content":[{"type":"text","text":"Hello"}]},"finish_reason":null}]}
+
+data: {"id":"a","object":"chat.completion.chunk","model":"mistral-large-4","choices":[{"index":0,"delta":{"content":", how can I help?"},"finish_reason":null}]}
+
+data: {"id":"a","object":"chat.completion.chunk","model":"mistral-large-4","choices":[{"index":0,"delta":{"content":""},"finish_reason":"stop"}],"usage":{"prompt_tokens":5727,"completion_tokens":42,"total_tokens":5769,"prompt_tokens_details":{"cached_tokens":5376}}}
+
+data: [DONE]
+

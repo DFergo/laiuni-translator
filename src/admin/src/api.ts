@@ -220,6 +220,47 @@ export interface LLMConnection {
   prefix_id: string
   model_ids: string[]
   enable: boolean
+  // Sprint 21 provider hints (optional)
+  provider?: string
+  prompt_cache_key?: boolean
+  routing?: Record<string, unknown>
+}
+
+export type ReasoningLevel = 'off' | 'low' | 'medium' | 'high'
+export type ReasoningSetting = 'default' | ReasoningLevel
+
+export interface ControlStatus {
+  status: 'sent' | 'not sent (default)' | 'ignored' | 'adjusted'
+  note?: string
+  options?: ReasoningLevel[]
+}
+
+export interface SlotCapabilities {
+  provider: string
+  provider_label: string
+  context_length: number | null
+  controls: { temperature: ControlStatus; max_tokens: ControlStatus; num_ctx: ControlStatus; reasoning: ControlStatus }
+}
+
+export async function getSlotCapabilities(data: {
+  connection: string; model: string; temperature: number | null; max_tokens: number | null
+  num_ctx: number | null; reasoning: ReasoningSetting | null
+}): Promise<SlotCapabilities> {
+  return request('/admin/llm/capabilities', { method: 'POST', body: JSON.stringify(data) })
+}
+
+export interface LLMUsageRow {
+  slot: string; connection: string; model: string; calls: number; calls_with_usage: number
+  prompt_tokens: number; cached_tokens: number; completion_tokens: number; reasoning_tokens: number
+  hit_rate: number | null; updated_at: number | null
+}
+
+export async function getLLMUsage(): Promise<{ rows: LLMUsageRow[] }> {
+  return request('/admin/llm/usage')
+}
+
+export async function resetLLMUsage(): Promise<{ rows: LLMUsageRow[] }> {
+  return request('/admin/llm/usage/reset', { method: 'POST' })
 }
 
 export interface ConnectionHealth {
@@ -259,7 +300,7 @@ export interface LLMSettings {
   translation_max_tokens: number | null
   translation_num_ctx: number | null
   translation_glossary_enabled: boolean
-  translation_enable_thinking: boolean
+  translation_reasoning?: ReasoningSetting | null
   compression_threshold: number
   compression_first_threshold: number
   compression_step_size: number

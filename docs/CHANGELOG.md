@@ -2,6 +2,17 @@
 
 Changes to the code in this repository. Earlier history is in the git log.
 
+## Sprint 21 — LLM provider controls and usage accounting (2026-10-30)
+
+Port of HRDD Helper Sprint 37, section B (Translator has no chat history, so prompt-layout caching does not apply).
+
+- **Block-format responses (fix).** OpenAI-compatible providers that return `content` as a list of blocks (Mistral API reasoning models such as `mistral-large-4`: `thinking` + `text`) are normalised in the stream: only `text` reaches the translated document.
+- **Capability profiles** (`services/llm_capabilities.py`): provider inferred from the connection address (Mistral, OpenRouter, OpenAI, other OpenAI-compatible) or forced per connection; per provider/model rules for the request fields. If a provider rejects an optional field we added, the call is retried once without it — the named field, or every optional field when the error names none.
+- **Reasoning control** replaces the hardcoded `enable_thinking=False` and the admin "Think" toggle that had no effect: `translation_reasoning` = default/off/low/medium/high, **off by default** (queso-suizo protection unchanged), mapped per provider: OpenRouter `reasoning`, Mistral `reasoning_effort` per model (`mistral-large-4` cannot switch off — previously "off" sent `reasoning_effort:"none"`, which that model rejects with HTTP 400), OpenAI reasoning models, Anthropic `thinking`, oMLX/LM Studio/vLLM `chat_template_kwargs.enable_thinking` for Qwen-family models only, Ollama `think`.
+- **Admin:** under each engine control, whether it is sent, adjusted or ignored for the chosen connection and model (`POST /admin/llm/capabilities`, incl. OpenRouter `supported_parameters`); reasoning select with unavailable levels disabled; provider-declared context window shown; connection *Provider options*; **Usage and prompt cache** card (`GET /admin/llm/usage`, reset).
+- **Usage accounting** (`services/llm_usage.py`): prompt, cached, completion and reasoning tokens from every provider, per slot/connection/model (`DATA_DIR/llm_usage.json`) and per job (`documents/{job}/llm_usage.json`, logged when the job finishes). Anthropic gets cache breakpoints on the system prompt.
+- **Tests:** `src/backend/tests/test_llm_provider.py` (25, with streams recorded from Mistral and OpenRouter).
+
 ## Sprint 20 — flexible frontend deployment: two ports, signed backend surface, address-only registration (§14, ADR-023) (2026-10-30)
 
 Port of HRDD Helper Sprints 35–36 with the same protocol; Translator-specific parts noted.
