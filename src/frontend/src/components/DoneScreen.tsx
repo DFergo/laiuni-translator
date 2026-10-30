@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { downloadJob } from '../api'
+import { downloadJob, TooLargeError } from '../api'
 import { useT } from '../i18n'
 import { Button, Card } from './ui'
 import { Banner } from './Banner'
@@ -28,8 +28,10 @@ export function DoneScreen({
       a.click()
       a.remove()
       URL.revokeObjectURL(url)
-    } catch {
-      setError(t('done.errExpired'))
+    } catch (e) {
+      setError(e instanceof TooLargeError
+        ? t('done.errTooLarge', { size: e.sizeMb, limit: e.limitMb })
+        : t('done.errExpired'))
     } finally {
       setBusy(false)
     }

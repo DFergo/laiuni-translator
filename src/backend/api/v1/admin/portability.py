@@ -3,6 +3,10 @@
 ZIP portability for per-frontend campaigns and the global config. Bundles carry
 source docs + config; RAG indexes are NOT shipped (rebuilt on import). Import
 also supports a folder path (shortcut when DATA_DIR is bind-mounted).
+
+The global export is the whole config dir, so it contains secrets: provider API
+keys, SMTP credentials and the frontend registry with per-frontend signing
+secrets and extra headers (SPEC §14.3). Store it like a credential.
 """
 
 import io

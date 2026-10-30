@@ -100,8 +100,19 @@ export async function getJob(token: string, ref: string): Promise<JobState> {
   )
 }
 
+// The result exceeds what this frontend can deliver (SPEC §14.4).
+export class TooLargeError extends Error {
+  constructor(public sizeMb: number, public limitMb: number) {
+    super('too_large')
+  }
+}
+
 export async function downloadJob(token: string, ref: string): Promise<Blob> {
   const r = await fetch(`/jobs/${ref}/download`, { headers: { Authorization: `Bearer ${token}` } })
+  if (r.status === 413) {
+    const d = (await r.json().catch(() => ({})))?.detail || {}
+    throw new TooLargeError(d.size_mb, d.limit_mb)
+  }
   if (!r.ok) throw new Error('download failed')
   return r.blob()
 }

@@ -139,20 +139,36 @@ export interface Frontend {
   status: string
   last_seen: string | null
   created_at: string
+  // Public portal address used in emailed download links (blank = url)
+  public_url?: string
+  // Backend-surface access — secret values are write-only.
+  auth_mode?: FrontendAuthMode
+  signing_source?: 'own' | 'global' | ''
+  signing_enabled?: boolean
+  extra_header_names?: string[]
+  surface_auth?: 'signed' | 'trusted-network'  // what the frontend itself reports on poll
 }
 
-export async function listFrontends(): Promise<{ frontends: Frontend[] }> {
+export type FrontendAuthMode = 'signed' | 'unsigned' | 'legacy'
+
+export interface FrontendCredentials {
+  auth_mode?: FrontendAuthMode
+  signing_secret?: string
+  extra_headers?: Record<string, string>
+}
+
+export async function listFrontends(): Promise<{ frontends: Frontend[]; global_secret_configured?: boolean }> {
   return request('/admin/frontends');
 }
 
-export async function registerFrontend(url: string, name: string = ''): Promise<{ frontend: Frontend }> {
+export async function registerFrontend(url: string, name: string = '', creds: FrontendCredentials & { public_url?: string } = {}): Promise<{ frontend: Frontend }> {
   return request('/admin/frontends', {
     method: 'POST',
-    body: JSON.stringify({ url, name }),
+    body: JSON.stringify({ url, name, ...creds }),
   });
 }
 
-export async function updateFrontend(id: string, data: { enabled?: boolean; name?: string; url?: string }): Promise<{ frontend: Frontend }> {
+export async function updateFrontend(id: string, data: { enabled?: boolean; name?: string; url?: string; public_url?: string } & FrontendCredentials): Promise<{ frontend: Frontend }> {
   return request(`/admin/frontends/${id}`, {
     method: 'PUT',
     body: JSON.stringify(data),

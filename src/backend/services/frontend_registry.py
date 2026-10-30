@@ -204,6 +204,11 @@ class FrontendRegistry:
                 self._frontends[fid]["last_seen"] = datetime.now(timezone.utc).isoformat()
             # Don't save on every status update — it's runtime state
 
+    def set_surface_auth(self, fid: str, mode: str | None):
+        """Backend-surface auth mode the frontend reports on each poll (runtime only)."""
+        if fid in self._frontends and mode:
+            self._frontends[fid]["surface_auth"] = mode
+
     def get(self, fid: str) -> dict[str, Any] | None:
         return self._frontends.get(fid)
 

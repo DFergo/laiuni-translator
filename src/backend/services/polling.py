@@ -2,7 +2,8 @@
 
 The browser talks only to the frontend **sidecar**; the sidecar never calls the
 backend. Instead the backend polls each enabled frontend's sidecar
-(`GET /internal/queue`) and pushes results back. The backend therefore accepts
+(`GET /internal/queue`, sent as `/backend/v1/queue` by `frontend_client` per the
+frontend's registry mode) and pushes results back. The backend therefore accepts
 no inbound connections from the public internet — it initiates every connection
 outbound.
 
@@ -20,6 +21,7 @@ from typing import Any
 
 import httpx
 
+from src.services import frontend_client
 from src.services.frontend_registry import registry
 from src.services.smtp_service import (
     is_email_authorized, generate_auth_code, verify_auth_code,
@@ -116,7 +118,7 @@ async def _push_branding_if_needed(client: httpx.AsyncClient, url: str, fid: str
 
 async def poll_frontends():
     """Poll all enabled frontends for pending auth requests; push branding."""
-    client = httpx.AsyncClient(timeout=10.0)
+    client = frontend_client.AsyncClient(timeout=10.0)
     try:
         enabled = registry.list_enabled()
 
@@ -128,6 +130,7 @@ async def poll_frontends():
                 resp.raise_for_status()
                 data = resp.json()
                 registry.set_status(fid, "online")
+                registry.set_surface_auth(fid, data.get("surface_auth"))
 
                 # Push branding + per-frontend config (backend is source of truth;
                 # keeps the sidecar's auth_mode/app_language in sync after restarts)

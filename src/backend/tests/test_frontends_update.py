@@ -64,34 +64,34 @@ class UpdateFrontendUrlTest(unittest.IsolatedAsyncioTestCase):
         return await frontends_api.update_frontend(fid, req, verify=verify, _={})
 
     async def test_success_preserves_id_and_normalises_url(self):
-        with patch.object(frontends_api, "httpx") as mock_httpx:
-            mock_httpx.AsyncClient.return_value = _FakeClient(ok=True)
+        with patch.object(frontends_api.frontend_client, "ProbeClient") as probe:
+            probe.return_value = _FakeClient(ok=True)
             result = await self._call("fid1", {"url": "http://10.0.0.99:8091/"})
         self.assertEqual(result["frontend"]["id"], "fid1")
         self.assertEqual(result["frontend"]["url"], "http://10.0.0.99:8091")
         self.assertEqual(result["frontend"]["name"], "one")  # untouched
 
     async def test_unreachable_raises_400(self):
-        with patch.object(frontends_api, "httpx") as mock_httpx:
-            mock_httpx.AsyncClient.return_value = _FakeClient(ok=False)
+        with patch.object(frontends_api.frontend_client, "ProbeClient") as probe:
+            probe.return_value = _FakeClient(ok=False)
             with self.assertRaises(HTTPException) as ctx:
                 await self._call("fid1", {"url": "http://10.0.0.99:8091"})
         self.assertEqual(ctx.exception.status_code, 400)
 
     async def test_verify_false_skips_reachability(self):
-        with patch.object(frontends_api, "httpx") as mock_httpx:
-            mock_httpx.AsyncClient.return_value = _FakeClient(ok=False)  # would fail if called
+        with patch.object(frontends_api.frontend_client, "ProbeClient") as probe:
+            probe.return_value = _FakeClient(ok=False)  # would fail if called
             result = await self._call("fid1", {"url": "http://10.0.0.99:8091"}, verify=False)
         self.assertEqual(result["frontend"]["url"], "http://10.0.0.99:8091")
-        mock_httpx.AsyncClient.assert_not_called()
+        probe.assert_not_called()
 
     async def test_collision_raises_409(self):
-        with patch.object(frontends_api, "httpx") as mock_httpx:
-            mock_httpx.AsyncClient.return_value = _FakeClient(ok=True)
+        with patch.object(frontends_api.frontend_client, "ProbeClient") as probe:
+            probe.return_value = _FakeClient(ok=True)
             with self.assertRaises(HTTPException) as ctx:
                 await self._call("fid1", {"url": "http://10.0.0.2:8091"})
         self.assertEqual(ctx.exception.status_code, 409)
-        mock_httpx.AsyncClient.assert_not_called()  # collision checked before reachability
+        probe.assert_not_called()  # collision checked before reachability
 
     async def test_collision_raises_409_even_with_verify_false(self):
         with self.assertRaises(HTTPException) as ctx:
@@ -99,11 +99,11 @@ class UpdateFrontendUrlTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ctx.exception.status_code, 409)
 
     async def test_name_only_update_unaffected(self):
-        with patch.object(frontends_api, "httpx") as mock_httpx:
+        with patch.object(frontends_api.frontend_client, "ProbeClient") as probe:
             result = await self._call("fid1", {"name": "renamed"})
         self.assertEqual(result["frontend"]["name"], "renamed")
         self.assertEqual(result["frontend"]["url"], "http://10.0.0.1:8091")  # unchanged
-        mock_httpx.AsyncClient.assert_not_called()
+        probe.assert_not_called()
 
     async def test_unknown_id_raises_404(self):
         with self.assertRaises(HTTPException) as ctx:

@@ -24,7 +24,7 @@ export type Key =
   | 'status.scheduledAt' | 'status.failed'
   | 'status.queued' | 'status.scheduledLabel' | 'status.running' | 'status.done' | 'status.pending'
   | 'done.title' | 'done.intro' | 'done.download' | 'done.preparing'
-  | 'done.another' | 'done.errExpired'
+  | 'done.another' | 'done.errExpired' | 'done.errTooLarge'
   | 'footer'
 
 type Dict = Record<Key, string>
@@ -87,6 +87,7 @@ const en: Dict = {
   'done.preparing': 'Preparing…',
   'done.another': 'Translate another document',
   'done.errExpired': 'This download is no longer available (it may have expired).',
+  'done.errTooLarge': 'The result is too large to download here ({size} MB; limit {limit} MB). Please contact the administrator.',
   'footer': '© 2026 UNI Global Union',
 }
 

@@ -31,6 +31,11 @@ from src.services.user_tokens import verify_user_token, verify_download_token
 
 logger = logging.getLogger("backend.jobchannel")
 
+# Largest result ZIP the frontend's backend surface accepts (MAX_BODY_BYTES in
+# sidecar/backend_auth.py, client_max_body_size on its 8080 listener) — SPEC §14.4.
+MAX_ARTIFACT_BYTES = 512 * 1024 * 1024
+_ARTIFACT_TIMEOUT = httpx.Timeout(600.0, connect=10.0)
+
 # Statuses whose status the browser still cares about (pushed each poll).
 _LIVE_STATUSES = ("queued", "scheduled", "running", "done", "failed")
 
@@ -178,10 +183,22 @@ async def _handle_submit(client: httpx.AsyncClient, url: str, fid: str, req: dic
     logger.info(f"Job accepted ref={ref} job_id={job['id']} tier={tier} langs={len(target_langs)}")
 
 
+async def _report_too_large(client: httpx.AsyncClient, url: str, key: str, job: dict[str, Any], size: int):
+    """Tell the sidecar the result can't be delivered through it, so the waiting
+    download returns a clear error instead of timing out (SPEC §14.4)."""
+    mb = 1024 * 1024
+    logger.warning(f"Job {job['id']}: result ZIP ({-(-size // mb)} MB) not delivered — larger than "
+                   f"the frontend accepts ({MAX_ARTIFACT_BYTES // mb} MB limit)")
+    payload = {**_status_payload(job), "ref": key,
+               "download_error": {"size_mb": -(-size // mb), "limit_mb": MAX_ARTIFACT_BYTES // mb}}
+    await _push_status(client, url, key, payload)
+
+
 async def _push_artifact(client: httpx.AsyncClient, url: str, key: str, job: dict[str, Any]) -> bool:
     """Zip the job's files and push them to the sidecar keyed by ``key`` (the
     browser ref for a live download, or the signed token for an email link).
-    Returns True if an artifact was pushed."""
+    Returns True if an artifact was pushed, or if an oversize result was
+    reported to the sidecar instead."""
     job_dir = DOCUMENTS_DIR / job["id"]
     files = [p for p in job_dir.iterdir() if p.is_file()] if job_dir.exists() else []
     if not files:
@@ -190,11 +207,20 @@ async def _push_artifact(client: httpx.AsyncClient, url: str, key: str, job: dic
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for p in files:
             zf.write(p, arcname=p.name)
+    data = buf.getvalue()
+    if len(data) > MAX_ARTIFACT_BYTES:
+        await _report_too_large(client, url, key, job, len(data))
+        return True
     try:
-        await client.post(f"{url}/internal/jobs/{key}/artifact",
-                          content=buf.getvalue(),
-                          headers={"Content-Type": "application/zip"})
-        logger.info(f"Pushed download artifact ({len(files)} files)")
+        resp = await client.post(f"{url}/internal/jobs/{key}/artifact",
+                                 content=data,
+                                 headers={"Content-Type": "application/zip"},
+                                 timeout=_ARTIFACT_TIMEOUT)
+        if resp.status_code == 413:
+            await _report_too_large(client, url, key, job, len(data))
+            return True
+        resp.raise_for_status()
+        logger.info(f"Pushed download artifact ({len(files)} files, {len(data) // 1024} KB)")
         return True
     except Exception as e:
         logger.error(f"artifact push failed: {e}")

@@ -44,6 +44,7 @@ RUN mkdir -p /app/data
 # Supervisor config to run both Nginx and sidecar
 COPY config/supervisord.conf /etc/supervisor/conf.d/laiuni.conf
 
-EXPOSE 80
+# 80 = public surface (SPA + browser routes); 8080 = backend surface (signed, never public)
+EXPOSE 80 8080
 
 CMD ["supervisord", "-n", "-c", "/etc/supervisor/conf.d/laiuni.conf"]

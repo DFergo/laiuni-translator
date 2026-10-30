@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
 from src.api.v1.admin.auth import require_admin
+from src.services import frontend_client
 from src.services.frontend_registry import registry
 from src.services.prompt_assembler import get_prompt_mode, copy_global_to_frontend
 
@@ -17,19 +18,98 @@ router = APIRouter(prefix="/admin/frontends", tags=["admin-frontends"])
 
 
 class RegisterRequest(BaseModel):
-    url: str
+    url: str  # the frontend's BACKEND port URL (legacy mode: its single port)
     name: str = ""
+    # "signed" (default: own secret, else the installation secret TRANSLATOR_FRONTEND_SECRET),
+    # "unsigned" (trusted network) or "legacy" (old frontend image).
+    auth_mode: str = frontend_client.MODE_SIGNED
+    signing_secret: str = ""   # optional per-frontend secret; blank = installation secret
+    extra_headers: dict[str, str] = {}
+    # Public address of the portal, used for the emailed download link (SPEC §14.3).
+    # Blank = `url` (right only when `url` is also what users reach, i.e. legacy).
+    public_url: str = ""
 
 
 class UpdateRequest(BaseModel):
     enabled: bool | None = None
     name: str | None = None
     url: str | None = None
+    auth_mode: str | None = None
+    # None = unchanged; "" = remove the per-frontend secret (falls back to the installation secret)
+    signing_secret: str | None = None
+    # None = unchanged; {} = remove. Values are write-only (never returned).
+    extra_headers: dict[str, str] | None = None
+    public_url: str | None = None  # None = unchanged; "" = remove
+
+
+MIN_SECRET_LENGTH = frontend_client.MIN_SECRET_LENGTH
+_CRED_FIELDS = {"auth_mode", "signing_secret", "extra_headers"}
+
+
+def _public_view(fe: dict | None) -> dict | None:
+    """Registry entry without secrets: the admin only sees whether they are set."""
+    if fe is None:
+        return None
+    out = {k: v for k, v in fe.items() if k not in ("signing_secret", "extra_headers")}
+    mode = frontend_client.auth_mode(fe)
+    _, source = frontend_client.effective_secret(fe)
+    out["auth_mode"] = mode
+    out["signing_source"] = source if mode == frontend_client.MODE_SIGNED else ""
+    out["signing_enabled"] = mode == frontend_client.MODE_SIGNED and bool(source)
+    out["extra_header_names"] = sorted((fe.get("extra_headers") or {}).keys())
+    return out
+
+
+def _check_mode(mode: str):
+    if mode not in frontend_client.AUTH_MODES:
+        raise HTTPException(status_code=400, detail=f"auth_mode must be one of {', '.join(frontend_client.AUTH_MODES)}")
+
+
+def _check_secret(secret: str):
+    if secret and len(secret) < MIN_SECRET_LENGTH:
+        raise HTTPException(status_code=400, detail=f"Signing secret must be at least {MIN_SECRET_LENGTH} characters")
+
+
+def _check_signable(entry: dict):
+    if frontend_client.auth_mode(entry) == frontend_client.MODE_SIGNED and not frontend_client.effective_secret(entry)[0]:
+        raise HTTPException(
+            status_code=400,
+            detail="Signed mode needs a secret: set TRANSLATOR_FRONTEND_SECRET on the backend (installation secret) "
+                   "or enter a secret for this frontend.",
+        )
+
+
+async def _probe(url: str, entry: dict):
+    """Reachability + auth check against the frontend (GET config), with the entry's final mode."""
+    mode = frontend_client.auth_mode(entry)
+    try:
+        async with frontend_client.ProbeClient(entry) as client:
+            resp = await client.get(f"{url}/internal/config")
+            resp.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        code = e.response.status_code
+        if code == 401 and mode == frontend_client.MODE_SIGNED:
+            detail = (f"Frontend at {url} rejected the signature — check that its TRANSLATOR_BACKEND_SECRET matches "
+                      f"this frontend's secret (or TRANSLATOR_FRONTEND_SECRET here) and that both clocks are in sync")
+        elif code == 401:
+            detail = (f"Frontend at {url} requires signed requests — choose 'Signed', or start the frontend "
+                      f"with BACKEND_SURFACE_AUTH=trusted-network")
+        elif code == 404 and mode != frontend_client.MODE_LEGACY:
+            detail = (f"No backend surface at {url} — use the frontend's backend port (container port 8080), "
+                      f"not the public one; a frontend on the old image needs mode 'Legacy'")
+        else:
+            detail = f"Cannot reach frontend at {url}: {str(e)}"
+        raise HTTPException(status_code=400, detail=detail)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Cannot reach frontend at {url}: {str(e)}")
 
 
 @router.get("")
 async def list_frontends(_: dict = Depends(require_admin)):
-    return {"frontends": registry.list_all()}
+    return {
+        "frontends": [_public_view(f) for f in registry.list_all()],
+        "global_secret_configured": bool(frontend_client.global_secret()),
+    }
 
 
 @router.post("")
@@ -37,32 +117,34 @@ async def register_frontend(req: RegisterRequest, _: dict = Depends(require_admi
     """Register a frontend by URL. Discovery stays URL-based (verify reachability
     via GET /internal/config); the frontend starts unconfigured (Sprint 21)."""
     url = req.url.rstrip("/")
+    secret = req.signing_secret.strip()
+    _check_mode(req.auth_mode)
+    _check_secret(secret)
+    entry = {"auth_mode": req.auth_mode, "signing_secret": secret, "extra_headers": req.extra_headers}
+    _check_signable(entry)
 
-    # Verify the frontend is reachable (URL-based detection, unchanged)
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(f"{url}/internal/config")
-            resp.raise_for_status()
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Cannot reach frontend at {url}: {str(e)}")
+    # Verify the frontend is reachable and accepts this mode before saving anything
+    await _probe(url, entry)
 
     frontend = registry.register(url, req.name)
+    frontend = registry.update(frontend["id"], **entry, public_url=req.public_url.strip().rstrip("/"))
     registry.set_status(frontend["id"], "online")
 
     # Auto-copy global prompts if in per_frontend mode (Sprint 8h loose end)
     if get_prompt_mode() == "per_frontend":
         copied = copy_global_to_frontend(frontend["id"])
         if copied:
-            frontend["prompts_copied"] = copied
+            frontend = {**_public_view(frontend), "prompts_copied": copied}
+            return {"frontend": frontend}
 
-    return {"frontend": frontend}
+    return {"frontend": _public_view(frontend)}
 
 
 # --- Deleted / restore (Sprint 21 soft-delete) ---
 
 @router.get("/deleted")
 async def list_deleted_frontends(_: dict = Depends(require_admin)):
-    return {"frontends": registry.list_deleted()}
+    return {"frontends": [_public_view(f) for f in registry.list_deleted()]}
 
 
 @router.post("/{frontend_id}/restore")
@@ -70,7 +152,7 @@ async def restore_frontend(frontend_id: str, _: dict = Depends(require_admin)):
     frontend = registry.restore(frontend_id)
     if not frontend:
         raise HTTPException(status_code=404, detail="Deleted frontend not found")
-    return {"frontend": frontend}
+    return {"frontend": _public_view(frontend)}
 
 
 # --- Per-frontend config (Sprint 21 schema; panel is Sprint 22) ---
@@ -114,7 +196,7 @@ async def _push_config_to_sidecar(frontend_id: str):
         except Exception:
             pass
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with frontend_client.AsyncClient(timeout=10.0) as client:
             await client.post(f"{fe['url']}/internal/frontend-config", json=config)
             logger.info(f"Config pushed to {fe['url']}")
     except Exception as e:
@@ -133,26 +215,39 @@ async def update_frontend(frontend_id: str, req: UpdateRequest, verify: bool = T
     reconciler that resolves the new IP on the host); the URL-collision check
     always runs.
     """
-    if not registry.get(frontend_id):
+    current = registry.get(frontend_id)
+    if not current:
         raise HTTPException(status_code=404, detail="Frontend not found")
 
     updates = {k: v for k, v in req.model_dump().items() if v is not None}
+    if "public_url" in updates:
+        updates["public_url"] = updates["public_url"].strip().rstrip("/")
+    if "auth_mode" in updates:
+        _check_mode(updates["auth_mode"])
+    if "signing_secret" in updates:
+        updates["signing_secret"] = updates["signing_secret"].strip()
+        _check_secret(updates["signing_secret"])
+    if _CRED_FIELDS & updates.keys():
+        # Pin the mode explicitly: entries from before modes existed derive it from
+        # their secret, and removing that secret must not silently switch to legacy.
+        updates.setdefault("auth_mode", frontend_client.auth_mode(current))
+        _check_signable({**current, **updates})
 
     if "url" in updates:
         new_url = updates["url"].rstrip("/")
         if registry.find_by_url(new_url, exclude=frontend_id):
             raise HTTPException(status_code=409, detail=f"URL {new_url} is already registered to another frontend")
-        if verify:
-            try:
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    resp = await client.get(f"{new_url}/internal/config")
-                    resp.raise_for_status()
-            except Exception as e:
-                raise HTTPException(status_code=400, detail=f"Cannot reach frontend at {new_url}: {str(e)}")
         updates["url"] = new_url
 
+    # Verify reachability and auth with the URL + mode + credentials that will be
+    # in effect after the update. Any http(s) host is accepted — IP, hostname,
+    # .local, Tailscale MagicDNS; the check decides, not the format.
+    if verify and (({"url"} | _CRED_FIELDS) & updates.keys()):
+        final = {**current, **updates}
+        await _probe(final["url"], final)
+
     frontend = registry.update(frontend_id, **updates)
-    return {"frontend": frontend}
+    return {"frontend": _public_view(frontend)}
 
 
 @router.delete("/{frontend_id}")
@@ -224,7 +319,7 @@ async def _push_branding_to_sidecar(frontend_id: str):
     fe = registry.get(frontend_id)
     if fe and fe.get("enabled"):
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with frontend_client.AsyncClient(timeout=10.0) as client:
                 await client.post(f"{fe['url']}/internal/branding", json=payload)
                 logger.info(f"Branding pushed to {fe['url']}")
         except Exception as e:

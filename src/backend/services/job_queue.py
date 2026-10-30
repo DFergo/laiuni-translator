@@ -483,7 +483,13 @@ async def process_job(job: dict[str, Any]) -> None:
         from src.services.frontend_registry import registry
         fid = job.get("frontend_id", "")
         fe = registry.get(fid) or {}
-        base = (fe.get("url") or "").rstrip("/")
+        # The public portal address (SPEC §14.3); `url` is the backend-surface address
+        # once a frontend is on the two-port image, so it is only the fallback.
+        base = (fe.get("public_url") or fe.get("url") or "").rstrip("/")
+        from src.services.frontend_client import auth_mode, MODE_LEGACY
+        if fe and not fe.get("public_url") and auth_mode(fe) != MODE_LEGACY:
+            logger.warning(f"Job {job_id}: frontend {fid} has no public address — the emailed link points "
+                           f"to its backend address. Set it in Admin → Frontends → Security.")
         token = mint_download_token(job["owner_email"], fid, job["client_ref"], expires_at)
         download_url = f"{base}/d/{token}"
         sent = await send_translation_ready(job["owner_email"], download_url)
