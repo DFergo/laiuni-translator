@@ -1,0 +1,64 @@
+# T3 — backend and frontend on the same machine, isolated containers.
+#
+# Networks:
+#   backchannel  (internal: no route out) — ONLY backend + this frontend. The backend
+#                reaches the frontend's backend surface at http://translator-frontend:8080.
+#                The frontend has no route to the backend (pull-inverse: it never needs one).
+#   egress       — backend's outbound access (LLM, SMTP).
+#   public       — frontend's public port, published on 127.0.0.1 for a local cloudflared.
+# The frontend's backend port is NOT published on the host.
+# Register in the backend: URL http://translator-frontend:8080 + the signing secret,
+# and the public address users open (used in emailed download links).
+# One backchannel network per frontend, so frontends can't see each other.
+#
+# Residual risk: on the backchannel the frontend container can open TCP to the
+# backend's port 8000 (admin API, protected by admin login). Docker networks don't
+# filter per port; keep the admin password strong or move frontends to another host.
+#
+#   cp .env.example .env   # fill in
+#   docker compose up -d
+
+services:
+  translator-backend:
+    image: ghcr.io/dfergo/laiuni-translator-backend:${BACKEND_TAG:-latest}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${BACKEND_ADMIN_PORT:-8000}:8000"
+    volumes:
+      - translator-data:/app/data
+    environment:
+      - DEPLOYMENT_JSON_PATH=/app/config/deployment_backend.json
+      - TRANSLATOR_FRONTEND_SECRET=${TRANSLATOR_BACKEND_SECRET:?set TRANSLATOR_BACKEND_SECRET (≥32 chars) — shared by backend and frontend}
+    networks: [egress, backchannel]
+    security_opt:
+      - no-new-privileges:true
+
+  translator-frontend:
+    image: ghcr.io/dfergo/laiuni-translator-frontend:${FRONTEND_TAG:-latest}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:?set FRONTEND_PORT}:80"
+    volumes:
+      - translator-frontend-data:/app/data
+    environment:
+      - BACKEND_SURFACE_AUTH=${BACKEND_SURFACE_AUTH:-signed}
+      - TRANSLATOR_BACKEND_SECRET=${TRANSLATOR_BACKEND_SECRET:-}
+      - TRANSLATOR_BACKEND_SECRET_PREVIOUS=${TRANSLATOR_BACKEND_SECRET_PREVIOUS:-}
+    networks: [public, backchannel]
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETUID, SETGID, NET_BIND_SERVICE, DAC_OVERRIDE]
+    mem_limit: 1536m  # result ZIPs up to 512 MB are held in memory (≈2.5× peak) — see README
+    cpus: 1.0
+    pids_limit: 256
+
+networks:
+  egress:
+  public:
+  backchannel:
+    internal: true
+
+volumes:
+  translator-data:
+  translator-frontend-data:

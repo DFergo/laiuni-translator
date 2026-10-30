@@ -23,6 +23,10 @@ services:
       #   - /Users/you/laiuni-data:/app/data
     environment:
       - DEPLOYMENT_JSON_PATH=/app/config/deployment_backend.json
+      # Installation-wide signing secret (≥ 32 chars, e.g. `openssl rand -hex 32`): used for
+      # every signed frontend without its own secret. Same value as TRANSLATOR_BACKEND_SECRET
+      # on those frontends. Optional — without it, signed frontends need their own secret.
+      - TRANSLATOR_FRONTEND_SECRET=${TRANSLATOR_FRONTEND_SECRET:-}
 
 volumes:
   laiuni-data:

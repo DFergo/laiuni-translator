@@ -8,16 +8,32 @@ services:
     # build:
     #   context: .
     #   dockerfile: Dockerfile.frontend
-    # FRONTEND_PORT is REQUIRED — deploy fails clearly if it is not set.
-    # Deploy one instance per campaign, each with its own port and volume.
+    # Two ports (container side fixed, host side configurable):
+    #   80   public surface  — portal + browser routes. Map this in the tunnel / give it to users.
+    #   8080 backend surface — signed requests from the Translator backend only.
+    # Deploy one instance per campaign, each with its own ports, volume and secret.
+    # Other topologies (frontend on a VPS, frontend on the backend host): see deploy/.
     ports:
+      # FRONTEND_PORT is REQUIRED — deploy fails clearly if it is not set.
       - "${FRONTEND_PORT:?FRONTEND_PORT is required — set the host port for this frontend}:80"
+      # Backend surface: bound to BACKEND_BIND only (default 127.0.0.1 = not reachable
+      # from other machines). For a backend on another LAN machine set BACKEND_BIND to
+      # this host's LAN IP. Never 0.0.0.0 on a machine with a public interface.
+      - "${BACKEND_BIND:-127.0.0.1}:${FRONTEND_BACKEND_PORT:?FRONTEND_BACKEND_PORT is required — host port for the backend surface}:8080"
     volumes:
-      # Sidecar state (pushed branding + config). Named volume by default;
+      # Sidecar state (pushed branding + config + languages). Named volume by default;
       # bind-mount alternative: - /Users/you/laiuni-frontend-a:/app/data
       - laiuni-frontend-data:/app/data
     environment:
       - DEPLOYMENT_JSON_PATH=/app/config/deployment_frontend.json
+      # Backend-surface auth: "signed" (default) or "trusted-network" (no signature
+      # check — only where nothing but the Translator backend can reach the backend port).
+      - BACKEND_SURFACE_AUTH=${BACKEND_SURFACE_AUTH:-signed}
+      # Signing secret (≥ 32 chars): the backend's installation secret TRANSLATOR_FRONTEND_SECRET,
+      # or this frontend's own secret from Admin → Frontends. Not needed in trusted-network.
+      # Rotation: put the old value in TRANSLATOR_BACKEND_SECRET_PREVIOUS while switching.
+      - TRANSLATOR_BACKEND_SECRET=${TRANSLATOR_BACKEND_SECRET:-}
+      - TRANSLATOR_BACKEND_SECRET_PREVIOUS=${TRANSLATOR_BACKEND_SECRET_PREVIOUS:-}
 
 volumes:
   laiuni-frontend-data:
