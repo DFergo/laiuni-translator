@@ -5,6 +5,7 @@ import {
   listConnections, addConnection, updateConnection, deleteConnection, getConnectionModels,
   type LLMHealth, type LLMSettings, type LLMConnection, type ConnectionType, type Frontend,
 } from './api'
+import ModelCombobox from './ModelCombobox'
 
 type SlotKey = 'inference' | 'reporter' | 'summariser' | 'translation'
 
@@ -17,7 +18,7 @@ const CONNECTION_TYPES: { value: ConnectionType; label: string }[] = [
 const inputCls = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-uni-blue focus:border-transparent outline-none'
 
 // ---------------------------------------------------------------------------
-// Reusable slot editor: connection → model (with manual entry) + optional params
+// Reusable slot editor: connection → model (searchable, free ID allowed) + optional params
 // ---------------------------------------------------------------------------
 
 function SlotConfig({
@@ -31,7 +32,6 @@ function SlotConfig({
   onSet: (key: keyof LLMSettings, val: string | number | null) => void
 }) {
   const isOverride = override !== undefined
-  const [manualModel, setManualModel] = useState(false)  // user forced manual model entry
   const connKey = `${slot}_connection` as keyof LLMSettings
   const modelKey = `${slot}_model` as keyof LLMSettings
   const tempKey = `${slot}_temperature` as keyof LLMSettings
@@ -48,10 +48,8 @@ function SlotConfig({
   const discovered = health?.connections?.[connId]?.models || []
   const models = allow.length ? allow : discovered
   const currentModel = (eff(modelKey) as string) || ''
-  const modelInList = models.includes(currentModel)
-  // Manual text entry: forced by the user, or unavoidable (no models discovered,
-  // or the current value isn't in the discovered list).
-  const useManual = models.length === 0 || manualModel || (currentModel !== '' && !modelInList)
+  // With an allow-list, the endpoint's other models stay selectable by exact ID
+  const extraModels = allow.length ? discovered.filter(m => !allow.includes(m)) : []
   const isAnthropic = conn?.type === 'anthropic'
   const isOllama = conn?.type === 'ollama'
 
@@ -114,31 +112,14 @@ function SlotConfig({
           <label className="block text-xs font-medium text-gray-600 mb-1">
             Model{resetLink(modelKey, String(settings[modelKey]))}
           </label>
-          {models.length > 0 && (
-            <select
-              value={modelInList && !useManual ? currentModel : '__manual__'}
-              onChange={e => {
-                if (e.target.value === '__manual__') setManualModel(true)
-                else { setManualModel(false); onSet(modelKey, e.target.value) }
-              }}
-              className={inputCls}
-            >
-              {models.map(m => <option key={m} value={m}>{m}</option>)}
-              <option value="__manual__">✏️ Enter manually…</option>
-            </select>
-          )}
-          {useManual && (
-            <input
-              type="text"
-              value={currentModel}
-              onChange={e => onSet(modelKey, e.target.value)}
-              placeholder="model ID"
-              className={`${inputCls} ${models.length > 0 ? 'mt-2' : ''}`}
-            />
-          )}
-          {models.length === 0 && (
-            <p className="text-xs text-gray-400 mt-1">No models discovered — enter the ID manually, or use “Test / fetch models” on the connection.</p>
-          )}
+          <ModelCombobox
+            key={connId}
+            value={currentModel}
+            models={models}
+            extra={extraModels}
+            onChange={id => onSet(modelKey, id)}
+            emptyHint="No models discovered on this connection — type the model ID, or use “Test / fetch models” on the connection."
+          />
         </div>
       </div>
       <div className={`grid ${isOllama ? 'grid-cols-3' : 'grid-cols-2'} gap-3`}>
@@ -464,7 +445,7 @@ export default function LLMTab() {
           <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
             <h3 className="text-lg font-semibold text-gray-800 mb-1">Translation engine{engineBadge()}</h3>
             <p className="text-xs text-gray-400 mb-4">
-              The single model used for every translation. Pick a connection and model (discovered models populate the dropdown).
+              The single model used for every translation. Pick a connection, then search its discovered models or type an exact model ID.
             </p>
             <SlotConfig slot="translation" connections={connections} health={health} settings={settings} onSet={setField} />
 
