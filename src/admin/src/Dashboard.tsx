@@ -6,12 +6,13 @@ import GlossaryTab from './GlossaryTab'
 import SettingsTab from './SettingsTab'
 import RegisteredUsersTab from './RegisteredUsersTab'
 import QueueTab from './QueueTab'
+import ApiTokensTab from './ApiTokensTab'
 
 interface Props {
   onLogout: () => void
 }
 
-const TABS = ['Frontends', 'Prompts', 'LLM', 'Glossary', 'Settings', 'Registered Users', 'Queue'] as const
+const TABS = ['Frontends', 'Prompts', 'LLM', 'Glossary', 'Settings', 'Registered Users', 'Queue', 'API tokens'] as const
 type Tab = typeof TABS[number]
 
 export default function Dashboard({ onLogout }: Props) {
@@ -57,6 +58,7 @@ export default function Dashboard({ onLogout }: Props) {
         {activeTab === 'Settings' && <SettingsTab />}
         {activeTab === 'Registered Users' && <RegisteredUsersTab />}
         {activeTab === 'Queue' && <QueueTab />}
+        {activeTab === 'API tokens' && <ApiTokensTab />}
       </main>
     </div>
   )

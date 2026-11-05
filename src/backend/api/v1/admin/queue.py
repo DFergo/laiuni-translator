@@ -27,7 +27,7 @@ async def get_queue(_: dict = Depends(require_admin)):
     return {
         "jobs": [
             {
-                "id": j["id"], "owner": j["owner_email"], "frontend_id": j["frontend_id"],
+                "id": j["id"], "owner": j["owner_email"], "origin": j["origin"], "frontend_id": j["frontend_id"],
                 "status": j["status"], "mode": j["mode"], "priority": bool(j["priority"]),
                 "format": j["format"], "n_langs": len(j["target_langs"]),
                 "created_at": j["created_at"], "run_at": j["run_at"], "position": i + 1,

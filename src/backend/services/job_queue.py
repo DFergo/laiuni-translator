@@ -75,7 +75,8 @@ def init_db() -> None:
                 created_at   REAL NOT NULL,
                 expires_at   REAL,            -- set on done
                 priority     INTEGER NOT NULL DEFAULT 0,  -- §12.7 privilege: 1 = jump the queue
-                options      TEXT NOT NULL DEFAULT '{}'   -- §13.2 per-job document options (JSON)
+                options      TEXT NOT NULL DEFAULT '{}',  -- §13.2 per-job document options (JSON)
+                origin       TEXT NOT NULL DEFAULT 'portal'  -- §16.4 portal | api
             )
             """
         )
@@ -87,6 +88,8 @@ def init_db() -> None:
             conn.execute("ALTER TABLE jobs ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
         if "options" not in cols:     # Sprint 15
             conn.execute("ALTER TABLE jobs ADD COLUMN options TEXT NOT NULL DEFAULT '{}'")
+        if "origin" not in cols:      # Sprint 22
+            conn.execute("ALTER TABLE jobs ADD COLUMN origin TEXT NOT NULL DEFAULT 'portal'")
         # Privacy-safe usage log (§12.9) — survives retention; counts only, never
         # filenames or content. One row per completed job.
         conn.execute(
@@ -97,10 +100,13 @@ def init_db() -> None:
                 frontend_id  TEXT NOT NULL DEFAULT '',
                 langs        TEXT NOT NULL DEFAULT '[]',  -- JSON list of target codes
                 day          TEXT NOT NULL,               -- YYYY-MM-DD (local)
-                created_at   REAL NOT NULL
+                created_at   REAL NOT NULL,
+                origin       TEXT NOT NULL DEFAULT 'portal'
             )
             """
         )
+        if "origin" not in {r[1] for r in conn.execute("PRAGMA table_info(usage_log)")}:  # Sprint 22
+            conn.execute("ALTER TABLE usage_log ADD COLUMN origin TEXT NOT NULL DEFAULT 'portal'")
 
 
 def detect_tier(filename: str) -> str | None:
@@ -188,6 +194,7 @@ def enqueue(
     options: dict[str, Any] | None = None,
     chars: int | None = None,
     now: datetime | None = None,
+    origin: str = "portal",
 ) -> dict[str, Any]:
     """Insert a new job. Computes ``run_at`` (scheduled → the next window start,
     §12.6), the duration estimate, and the initial status (``queued`` if due now,
@@ -208,12 +215,12 @@ def enqueue(
         conn.execute(
             """INSERT INTO jobs (id, owner_email, frontend_id, client_ref, source_lang,
                    target_langs, format, path, glossary, mode, run_at, status, progress,
-                   estimate_s, error, created_at, expires_at, priority, options)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   estimate_s, error, created_at, expires_at, priority, options, origin)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (job_id, owner_email.lower().strip(), frontend_id, client_ref, source_lang,
              json.dumps(target_langs), fmt, path, glossary, mode,
              run_at_dt.timestamp(), status, json.dumps(progress), estimate,
-             "", now.timestamp(), None, 1 if priority else 0, json.dumps(options or {})),
+             "", now.timestamp(), None, 1 if priority else 0, json.dumps(options or {}), origin),
         )
     logger.info(f"Enqueued job {job_id} status={status} run_at={run_at_dt.isoformat()} "
                 f"priority={int(priority)} langs={len(target_langs)} estimate={estimate}s")
@@ -406,30 +413,31 @@ def move_in_queue(job_id: str, direction: str) -> None:
     _set(b["id"], created_at=a["created_at"])
 
 
-def record_usage(email: str, frontend_id: str, target_langs: list[str], now: float | None = None) -> None:
+def record_usage(email: str, frontend_id: str, target_langs: list[str], now: float | None = None,
+                 origin: str = "portal") -> None:
     """Log one completed job — counts only, never filenames/content (§8/§12.9)."""
     now = now if now is not None else time.time()
     day = datetime.fromtimestamp(now).strftime("%Y-%m-%d")
     with _connect() as conn:
         conn.execute(
-            "INSERT INTO usage_log (email, frontend_id, langs, day, created_at) VALUES (?,?,?,?,?)",
-            (email.lower().strip(), frontend_id, json.dumps(target_langs), day, now),
+            "INSERT INTO usage_log (email, frontend_id, langs, day, created_at, origin) VALUES (?,?,?,?,?,?)",
+            (email.lower().strip(), frontend_id, json.dumps(target_langs), day, now, origin),
         )
 
 
 def usage_summary() -> list[dict[str, Any]]:
     """Per-user usage: #documents, distinct languages, first/last day."""
     with _connect() as conn:
-        rows = conn.execute("SELECT email, langs, day FROM usage_log").fetchall()
+        rows = conn.execute("SELECT email, langs, day, origin FROM usage_log").fetchall()
     agg: dict[str, dict[str, Any]] = {}
     for r in rows:
-        a = agg.setdefault(r["email"], {"email": r["email"], "documents": 0,
+        a = agg.setdefault(r["email"], {"email": r["email"], "origin": r["origin"], "documents": 0,
                                         "languages": set(), "first_day": r["day"], "last_day": r["day"]})
         a["documents"] += 1
         a["languages"].update(json.loads(r["langs"]))
         a["first_day"] = min(a["first_day"], r["day"])
         a["last_day"] = max(a["last_day"], r["day"])
-    return [{"email": a["email"], "documents": a["documents"],
+    return [{"email": a["email"], "origin": a["origin"], "documents": a["documents"],
              "languages": sorted(a["languages"]), "first_day": a["first_day"], "last_day": a["last_day"]}
             for a in sorted(agg.values(), key=lambda x: x["email"])]
 
@@ -460,6 +468,7 @@ async def process_job(job: dict[str, Any]) -> None:
         outputs: list[Path] = []
         for lang in job["target_langs"]:
             await translate(ir, job["source_lang"], [lang], job["glossary"],
+                            connection_id=(job.get("options") or {}).get("connection_id") or None,
                             frontend_id=job.get("frontend_id", ""), options=job.get("options") or {})
             out_path = out_dir / f"{src.stem}.{lang}{src.suffix}"
             recompose(ir, lang, str(out_path))
@@ -470,7 +479,8 @@ async def process_job(job: dict[str, Any]) -> None:
         from src.api.v1.admin.settings import retention_hours
         expires_at = time.time() + retention_hours() * 3600
         mark_done(job_id, expires_at)
-        record_usage(job["owner_email"], job.get("frontend_id", ""), job["target_langs"])  # §12.9 counts only
+        record_usage(job["owner_email"], job.get("frontend_id", ""), job["target_langs"],
+                     origin=job.get("origin", "portal"))  # §12.9 counts only
         logger.info(f"Job {job_id} translated — {len(outputs)} language(s), expires in {retention_hours()}h")
         for slot, c in llm_usage.job_summary(job_id).items():
             logger.info(f"Job {job_id} LLM usage ({slot}): calls={c['calls']} prompt={c['prompt_tokens']} "
@@ -482,6 +492,9 @@ async def process_job(job: dict[str, Any]) -> None:
         return
     finally:
         llm_usage.current_job.reset(usage_token)
+
+    if job.get("origin") == "api":  # §16.4: machine jobs are fetched via /api/v1, never emailed
+        return
 
     # Notify separately: the translation already succeeded and is downloadable —
     # a mail/link failure must NOT flip the job to `failed`, but must be loud.

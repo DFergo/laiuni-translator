@@ -25,6 +25,8 @@ from src.api.v1.admin.knowledge import ensure_defaults as ensure_knowledge_defau
 from src.api.v1.admin.portability import router as portability_router
 from src.api.v1.admin.settings import router as settings_router
 from src.api.v1.admin.queue import router as queue_router, usage_router
+from src.api.v1.admin.api_tokens import router as api_tokens_router
+from src.api.v1.machine import router as machine_router
 from src.core.config import config
 from src.services.job_queue import init_db, scheduler_loop
 from src.services.polling import polling_loop
@@ -73,6 +75,8 @@ app.include_router(portability_router)
 app.include_router(settings_router)
 app.include_router(queue_router)
 app.include_router(usage_router)
+app.include_router(api_tokens_router)
+app.include_router(machine_router)
 
 # Admin SPA static files
 ADMIN_DIST = Path("/app/admin/dist")

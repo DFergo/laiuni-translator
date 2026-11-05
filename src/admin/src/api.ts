@@ -104,8 +104,16 @@ export const retryJob = (id: string): Promise<{ ok: boolean }> =>
 export const deleteQueueJob = (id: string): Promise<{ ok: boolean }> =>
   request(`/admin/queue/${id}`, { method: 'DELETE' });
 
-export interface UsageRow { email: string; documents: number; languages: string[]; first_day: string; last_day: string }
+export interface UsageRow { email: string; origin?: string; documents: number; languages: string[]; first_day: string; last_day: string }
 export const getUsage = (): Promise<{ usage: UsageRow[] }> => request('/admin/usage');
+
+// --- API tokens (Sprint 22, SPEC §16.1) ---
+export interface ApiToken { id: string; name: string; created_at: number; last_used: number | null }
+export const listApiTokens = (): Promise<{ tokens: ApiToken[] }> => request('/admin/api-tokens');
+export const createApiToken = (name: string): Promise<ApiToken & { token: string }> =>
+  request('/admin/api-tokens', { method: 'POST', body: JSON.stringify({ name }) });
+export const revokeApiToken = (id: string): Promise<{ ok: boolean }> =>
+  request(`/admin/api-tokens/${id}`, { method: 'DELETE' });
 
 export async function getAdminStatus(): Promise<{ setup_complete: boolean }> {
   return request('/admin/status');
