@@ -190,6 +190,21 @@ class JobStatus(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+@router.get("/frontends", summary="Frontends you can pass as `frontend_id`")
+async def frontends(_: dict = Depends(require_api_token)):
+    from src.services.frontend_registry import registry
+    return {"frontends": [{"id": f["id"], "name": f.get("name", ""), "enabled": f.get("enabled", True)}
+                          for f in registry.list_all()]}
+
+
+@router.get("/connections", summary="Connections you can pass as `connection_id` (no keys or URLs)")
+async def list_connections(_: dict = Depends(require_api_token)):
+    from src.services.connection_registry import connections, capacity
+    return {"connections": [{"id": c["id"], "type": c["type"], "models": c.get("model_ids") or [],
+                             "enabled": c.get("enable", True), "parallel": bool(c.get("parallel")),
+                             "max_concurrent": capacity(c)} for c in connections.all()]}
+
+
 @router.get("/languages", summary="Accepted language codes")
 async def languages(_: dict = Depends(require_api_token)):
     return {"languages": [{"code": c, "name": n} for c, n in LANGUAGES.items()]}

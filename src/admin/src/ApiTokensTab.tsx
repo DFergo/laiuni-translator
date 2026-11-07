@@ -6,6 +6,7 @@ import { listApiTokens, createApiToken, revokeApiToken, type ApiToken } from './
 export default function ApiTokensTab() {
   const [tokens, setTokens] = useState<ApiToken[]>([])
   const [name, setName] = useState('')
+  const [full, setFull] = useState(false)
   const [fresh, setFresh] = useState<{ name: string; token: string } | null>(null)
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState('')
@@ -20,8 +21,8 @@ export default function ApiTokensTab() {
   const create = async () => {
     setError('')
     try {
-      const r = await createApiToken(name.trim())
-      setFresh({ name: r.name, token: r.token }); setName(''); setCopied(false)
+      const r = await createApiToken(name.trim(), full ? 'admin' : 'translate')
+      setFresh({ name: r.name, token: r.token }); setName(''); setFull(false); setCopied(false)
       await refresh()
     } catch (e) { setError(e instanceof Error ? e.message : 'Could not create the token') }
   }
@@ -69,6 +70,12 @@ export default function ApiTokensTab() {
             className="bg-uni-blue text-white text-sm rounded-lg px-4 py-2 disabled:opacity-40">Generate token</button>
         </div>
 
+        <label className="flex items-center gap-2 text-xs text-gray-600 mt-2">
+          <input type="checkbox" checked={full} onChange={e => setFull(e.target.checked)} />
+          Full admin access — also every <code>/admin/*</code> route (frontends, LLM, SMTP, whitelist, settings, tokens…)
+        </label>
+        {full && <p className="text-xs text-uni-red mt-1">Whoever holds this token can do anything the admin can, including reading provider keys and creating more tokens. Its admin calls are logged.</p>}
+
         {fresh && (
           <div className="mt-4 border border-yellow-300 bg-yellow-50 rounded-lg p-4">
             <p className="text-sm font-medium text-gray-900 mb-1">Token for “{fresh.name}” — copy or download it now; it cannot be shown again.</p>
@@ -86,14 +93,17 @@ export default function ApiTokensTab() {
         <div className="overflow-x-auto border border-gray-200 rounded-lg">
           <table className="min-w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>{['Name', 'ID', 'Created', 'Last used', ''].map(h => (
+              <tr>{['Name', 'Access', 'ID', 'Created', 'Last used', ''].map(h => (
                 <th key={h} className="px-3 py-2 text-left font-medium text-gray-700">{h}</th>))}</tr>
             </thead>
             <tbody>
-              {tokens.length === 0 && <tr><td colSpan={5} className="px-3 py-4 text-center text-gray-500">No API tokens.</td></tr>}
+              {tokens.length === 0 && <tr><td colSpan={6} className="px-3 py-4 text-center text-gray-500">No API tokens.</td></tr>}
               {tokens.map(t => (
                 <tr key={t.id} className="border-b border-gray-100 last:border-0">
                   <td className="px-3 py-2 font-medium">{t.name}</td>
+                  <td className="px-3 py-2">{t.scope === 'admin'
+                    ? <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-uni-red">full admin</span>
+                    : <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">translate</span>}</td>
                   <td className="px-3 py-2 font-mono text-xs text-gray-500">{t.id}</td>
                   <td className="px-3 py-2">{fmt(t.created_at)}</td>
                   <td className="px-3 py-2">{fmt(t.last_used)}</td>

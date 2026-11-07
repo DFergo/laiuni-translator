@@ -190,6 +190,45 @@ class MachineApiTest(unittest.TestCase):
         self.assertEqual(self.client.delete(f"/api/v1/jobs/{r['job_id']}", headers=self.auth).status_code, 409)
         self.assertEqual(self.client.get(f"/api/v1/jobs/{r['job_id']}/result", headers=self.auth).status_code, 409)
 
+    def test_helpers_list_frontends_and_connections_without_secrets(self):
+        r = self.client.get("/api/v1/connections", headers=self.auth)
+        self.assertEqual(r.status_code, 200)
+        conn = next(c for c in r.json()["connections"] if c["id"] == "test-conn")
+        self.assertEqual(conn["models"], ["m1"])
+        self.assertNotIn("api_key", conn)
+        self.assertNotIn("base_url", conn)
+        self.assertEqual(self.client.get("/api/v1/frontends", headers=self.auth).status_code, 200)
+        self.assertEqual(self.client.get("/api/v1/frontends").status_code, 401)
+
+    def test_scopes_translate_token_cannot_use_admin_routes(self):
+        for path in ("/admin/frontends", "/admin/queue", "/admin/api-tokens", "/admin/verify"):
+            self.assertEqual(self.client.get(path, headers=self.auth).status_code, 401, path)
+
+    def test_admin_scope_token_reaches_admin_routes(self):
+        plaintext, entry = api_tokens.create("operator", "admin")
+        self.assertEqual(entry["scope"], "admin")
+        h = {"Authorization": f"Bearer {plaintext}"}
+        for path in ("/admin/frontends", "/admin/queue", "/admin/usage", "/admin/settings", "/admin/llm/connections"):
+            self.assertEqual(self.client.get(path, headers=h).status_code, 200, path)
+        self.assertEqual(self.client.get("/admin/verify", headers=h).json(), {"valid": True, "sub": "api:operator"})
+        # it still works on /api/v1, can mint another token, and revoking it cuts access at once
+        self.assertEqual(self.client.get("/api/v1/languages", headers=h).status_code, 200)
+        made = self.client.post("/admin/api-tokens", headers=h, json={"name": "child", "scope": "admin"})
+        self.assertEqual((made.status_code, made.json()["scope"]), (200, "admin"))
+        self.assertEqual(self.client.post("/admin/api-tokens", headers=h, json={"name": "x", "scope": "root"}).status_code, 422)
+        self.assertTrue(api_tokens.revoke(entry["id"]))
+        self.assertEqual(self.client.get("/admin/queue", headers=h).status_code, 401)
+
+    def test_legacy_token_without_scope_is_translate_only(self):
+        import json
+        plaintext, entry = api_tokens.create("legacy")
+        stored = json.loads(api_tokens._PATH.read_text())
+        for e in stored:
+            e.pop("scope", None)
+        api_tokens._PATH.write_text(json.dumps(stored))
+        self.assertEqual(api_tokens.verify(plaintext)["scope"], "translate")
+        self.assertEqual(self.client.get("/admin/queue", headers={"Authorization": f"Bearer {plaintext}"}).status_code, 401)
+
     def test_job_rejects_bad_input(self):
         r = self.client.post("/api/v1/jobs", headers=self.auth, data={"target_langs": "en"},
                              files={"file": ("a.exe", b"x")})

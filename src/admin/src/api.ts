@@ -111,10 +111,10 @@ export interface UsageRow { email: string; origin?: string; documents: number; l
 export const getUsage = (): Promise<{ usage: UsageRow[] }> => request('/admin/usage');
 
 // --- API tokens (Sprint 22, SPEC §16.1) ---
-export interface ApiToken { id: string; name: string; created_at: number; last_used: number | null }
+export interface ApiToken { id: string; name: string; scope: 'translate' | 'admin'; created_at: number; last_used: number | null }
 export const listApiTokens = (): Promise<{ tokens: ApiToken[] }> => request('/admin/api-tokens');
-export const createApiToken = (name: string): Promise<ApiToken & { token: string }> =>
-  request('/admin/api-tokens', { method: 'POST', body: JSON.stringify({ name }) });
+export const createApiToken = (name: string, scope: 'translate' | 'admin'): Promise<ApiToken & { token: string }> =>
+  request('/admin/api-tokens', { method: 'POST', body: JSON.stringify({ name, scope }) });
 export const revokeApiToken = (id: string): Promise<{ ok: boolean }> =>
   request(`/admin/api-tokens/${id}`, { method: 'DELETE' });
 

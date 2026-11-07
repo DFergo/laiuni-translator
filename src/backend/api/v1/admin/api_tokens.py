@@ -2,6 +2,8 @@
 
 import logging
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
@@ -15,6 +17,8 @@ router = APIRouter(prefix="/admin/api-tokens", tags=["admin-api-tokens"])
 
 class CreateTokenRequest(BaseModel):
     name: str = Field(min_length=1, max_length=60)
+    scope: Literal["translate", "admin"] = Field(
+        "translate", description="`admin` also grants every /admin/* route (SPEC §16.5).")
 
 
 @router.get("")
@@ -26,10 +30,10 @@ async def list_tokens(_: dict = Depends(require_admin)):
 async def create_token(req: CreateTokenRequest, _: dict = Depends(require_admin)):
     """Returns the plaintext token **once**; only its hash is kept."""
     try:
-        plaintext, entry = api_tokens.create(req.name)
+        plaintext, entry = api_tokens.create(req.name, req.scope)
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
-    logger.info(f"API token created: {entry['id']} ({entry['name']})")
+    logger.info(f"API token created: {entry['id']} ({entry['name']}, scope={entry['scope']})")
     return {"token": plaintext, **entry}
 
 

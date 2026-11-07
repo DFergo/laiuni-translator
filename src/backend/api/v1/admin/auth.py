@@ -1,15 +1,18 @@
 import hashlib
 import hmac
 import json
+import logging
 import os
 import secrets
 import time
 from pathlib import Path
 
 import bcrypt
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, field_validator
+
+logger = logging.getLogger("backend.admin.auth")
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 security = HTTPBearer(auto_error=False)
@@ -78,14 +81,20 @@ def _decode_jwt(token: str, secret: str) -> dict | None:
         return None
 
 
-async def require_admin(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+async def require_admin(request: Request, credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+    """The admin JWT, or an API token with ``admin`` scope (SPEC §16.5). Token calls are
+    logged (who, method, path — never bodies) so the admin can supervise the AI."""
     if not credentials:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    secret = _get_jwt_secret()
-    payload = _decode_jwt(credentials.credentials, secret)
-    if not payload:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-    return payload
+    payload = _decode_jwt(credentials.credentials, _get_jwt_secret())
+    if payload:
+        return payload
+    from src.services import api_tokens
+    entry = api_tokens.verify(credentials.credentials)
+    if entry and entry["scope"] == "admin":
+        logger.info(f"Admin API via token '{entry['name']}': {request.method} {request.url.path}")
+        return {"sub": f"api:{entry['name']}", "api_token": entry["id"]}
+    raise HTTPException(status_code=401, detail="Invalid or expired token")
 
 
 class SetupRequest(BaseModel):

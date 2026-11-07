@@ -42,21 +42,27 @@ def _save(tokens: list[dict[str, Any]]) -> None:
     tmp.rename(_PATH)
 
 
-def create(name: str) -> tuple[str, dict[str, Any]]:
+SCOPES = ("translate", "admin")
+
+
+def create(name: str, scope: str = "translate") -> tuple[str, dict[str, Any]]:
     """Mint a token. Returns ``(plaintext, public_entry)``; the plaintext is not recoverable."""
     name = name.strip()
+    if scope not in SCOPES:
+        raise ValueError(f"scope must be one of {SCOPES}")
     existing = _load()
     if any(e["name"].lower() == name.lower() for e in existing):  # name = job owner identity (api:<name>)
         raise ValueError(f"A token named '{name}' already exists")
     plaintext = _PREFIX + secrets.token_urlsafe(32)
-    entry = {"id": secrets.token_hex(4), "name": name, "hash": _hash(plaintext),
+    entry = {"id": secrets.token_hex(4), "name": name, "hash": _hash(plaintext), "scope": scope,
              "created_at": time.time(), "last_used": None}
     _save(existing + [entry])
     return plaintext, _public(entry)
 
 
 def _public(entry: dict[str, Any]) -> dict[str, Any]:
-    return {k: entry[k] for k in ("id", "name", "created_at", "last_used")}
+    return {**{k: entry[k] for k in ("id", "name", "created_at", "last_used")},
+            "scope": entry.get("scope", "translate")}  # tokens from before Sprint 24 have no scope
 
 
 def list_tokens() -> list[dict[str, Any]]:
