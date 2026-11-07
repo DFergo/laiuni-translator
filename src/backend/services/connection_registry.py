@@ -25,6 +25,18 @@ from src.core.paths import CONFIG_DIR, CONNECTIONS as CONNECTIONS_FILE
 VALID_TYPES = {"openai", "anthropic", "ollama"}
 
 
+def _clamp_concurrency(value: Any) -> int:
+    try:
+        return max(1, min(32, int(value)))
+    except (TypeError, ValueError):
+        return 4
+
+
+def capacity(conn: dict[str, Any] | None) -> int:
+    """How many jobs may run at once on a connection (§17.1)."""
+    return _clamp_concurrency((conn or {}).get("max_concurrent")) if (conn or {}).get("parallel") else 1
+
+
 def _seed_connections() -> list[dict[str, Any]]:
     """No preregistered connections — LAIUNI starts with an empty registry.
 
@@ -93,9 +105,10 @@ class ConnectionRegistry:
         if not existing:
             raise ValueError(f"Connection not found: {connection_id}")
         for key in ("type", "base_url", "api_key", "prefix_id", "model_ids", "enable",
-                    "provider", "prompt_cache_key", "routing"):
+                    "provider", "prompt_cache_key", "routing", "parallel", "max_concurrent"):
             if key in patch and patch[key] is not None:
                 existing[key] = patch[key]
+        existing["max_concurrent"] = _clamp_concurrency(existing.get("max_concurrent"))
         if existing["type"] not in VALID_TYPES:
             raise ValueError(f"Invalid connection type: {existing['type']}")
         self._save()
@@ -131,6 +144,10 @@ class ConnectionRegistry:
             "provider": conn.get("provider") or "",
             "prompt_cache_key": bool(conn.get("prompt_cache_key", False)),
             "routing": conn.get("routing") or {},
+            # Sprint 23 (§17.1): several jobs at once on this connection (commercial
+            # inference); off = one job at a time, the historical behaviour.
+            "parallel": bool(conn.get("parallel", False)),
+            "max_concurrent": _clamp_concurrency(conn.get("max_concurrent")),
         }
 
 

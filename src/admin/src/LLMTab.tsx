@@ -256,6 +256,7 @@ function ConnectionsCard({
                     <span className="text-sm font-medium text-gray-800">{c.id}</span>
                     <span className="text-xs text-gray-400 ml-2">{c.type} · {c.base_url}</span>
                     {!c.enable && <span className="text-xs text-uni-red ml-2">disabled</span>}
+                    {c.parallel && <span className="text-xs text-uni-blue ml-2">parallel ×{c.max_concurrent ?? 4}</span>}
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -337,6 +338,22 @@ function ConnForm({
         <input value={(draft.model_ids || []).join(', ')}
           onChange={e => set('model_ids', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
           placeholder="blank = auto-discover all models on save" className={inputCls} />
+      </div>
+      <div className="flex items-center gap-3 text-sm">
+        <label className="flex items-center gap-2 text-xs text-gray-600">
+          <input type="checkbox" checked={!!draft.parallel} onChange={e => set('parallel', e.target.checked)} />
+          Allow parallel jobs
+        </label>
+        {draft.parallel && (
+          <label className="flex items-center gap-2 text-xs text-gray-600">
+            up to
+            <input type="number" min={1} max={32} value={draft.max_concurrent ?? 4}
+              onChange={e => set('max_concurrent', Math.max(1, Math.min(32, Number(e.target.value) || 1)))}
+              className="w-16 border border-gray-300 rounded-lg px-2 py-1 text-sm" />
+            at once
+          </label>
+        )}
+        <span className="text-xs text-gray-400">{draft.parallel ? 'Mind the provider’s rate limits.' : 'Off: one job at a time on this connection.'}</span>
       </div>
       {draft.type === 'openai' && (
         <details className="text-sm" open={!!(draft.provider || draft.prompt_cache_key || Object.keys(draft.routing || {}).length)}>

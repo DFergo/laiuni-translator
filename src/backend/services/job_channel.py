@@ -146,6 +146,19 @@ async def _handle_submit(client: httpx.AsyncClient, url: str, fid: str, req: dic
         requested = req.get("mode", "scheduled")
         mode = requested if requested in ("immediate", "scheduled") else "scheduled"
     priority = bool(contact.get("priority"))
+    fingerprint = jq.compute_fingerprint(data, req.get("source_lang", "en"), target_langs, fid,
+                                         req.get("glossary", ""))
+    dup = jq.find_active_duplicate(payload["sub"], fingerprint)
+    if dup:  # §17.4 — the same document with the same options is already queued/running
+        logger.info(f"Duplicate submission ref={ref} of job {dup['id']} — rejected")
+        await _push_status(client, url, ref, {"ref": ref, "status": "rejected",
+                                              "error": "This document is already being translated "
+                                                       "with the same languages. Wait for it to finish."})
+        try:
+            await client.delete(f"{url}/internal/upload/{ref}/{filename}")
+        except Exception:
+            pass
+        return
     try:
         staging = DOCUMENTS_DIR / "_staging" / ref
         staging.mkdir(parents=True, exist_ok=True)
@@ -154,7 +167,7 @@ async def _handle_submit(client: httpx.AsyncClient, url: str, fid: str, req: dic
         job = jq.enqueue(
             payload["sub"], req.get("source_lang", "en"), target_langs, tier, str(staged_file),
             frontend_id=fid, client_ref=ref, glossary=req.get("glossary", ""),
-            mode=mode, priority=priority, options=req.get("options") or {},
+            mode=mode, priority=priority, options=req.get("options") or {}, fingerprint=fingerprint,
         )
         job_dir = DOCUMENTS_DIR / job["id"]
         job_dir.mkdir(parents=True, exist_ok=True)

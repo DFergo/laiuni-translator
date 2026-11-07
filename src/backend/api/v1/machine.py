@@ -149,15 +149,40 @@ class JobCreated(BaseModel):
     job_id: str
     status: str
     estimate_s: int
+    duplicate: bool = Field(False, description="True when an identical job (same file, languages, frontend, "
+                            "glossary) was still active; its id is returned and nothing new was queued. "
+                            "Send `force=true` to queue it anyway.")
+
+
+class JobFile(BaseModel):
+    name: str
+    kind: str = Field(description="source | translation")
+    lang: str | None = Field(None, description="Target language of a translation file.")
+    size: int
+
+
+class JobSummary(BaseModel):
+    job_id: str
+    filename: str
+    status: str
+    progress: float
+    source_lang: str
+    target_langs: list[str]
+    frontend_id: str
+    created_at: float
+    expires_at: float | None = Field(None, description="Files and record are deleted after this time.")
+    files: list[JobFile] = Field(default_factory=list, description="Only when status is done.")
 
 
 class JobStatus(BaseModel):
     job_id: str
-    status: str = Field(description="queued | scheduled | running | done | failed")
+    status: str = Field(description="queued | scheduled | running | done | failed | cancelled")
+    progress: float = Field(description="Overall progress 0–1 (translated units across all target languages).")
     total_langs: int
     langs_done: list[str]
     error: str | None = None
     expires_at: float | None = None
+    files: list[JobFile] = Field(default_factory=list, description="Only when status is done.")
 
 
 # ---------------------------------------------------------------------------
@@ -229,6 +254,7 @@ async def create_job(
     frontend_id: str = Form(""),
     connection_id: str = Form(""),
     glossary: str = Form(""),
+    force: bool = Form(False, description="Queue even if an identical job is still active."),
     token: dict = Depends(require_api_token),
 ):
     targets = list(dict.fromkeys(_check_lang(c, "target_langs") for c in target_langs.split(",") if c.strip()))
@@ -242,14 +268,25 @@ async def create_job(
     if not tier:
         raise HTTPException(status_code=415, detail=f"Unsupported file type: '{Path(filename).suffix}'")
 
+    data = await file.read()
+    # No await between this check and the insert below, so concurrent identical
+    # submissions cannot both pass it (single event loop).
+    owner = f"api:{token['name']}"
+    fingerprint = jq.compute_fingerprint(data, source, targets, fid, glossary, connection_id)
+    dup = None if force else jq.find_active_duplicate(owner, fingerprint)
+    if dup:
+        logger.info(f"API job duplicate of {dup['id']} (token {token['id']}) — not queued")
+        return JobCreated(job_id=dup["id"], status=dup["status"], estimate_s=dup["estimate_s"], duplicate=True)
+
     staging = DOCUMENTS_DIR / "_staging" / ("api-" + secrets.token_hex(6))
     staging.mkdir(parents=True, exist_ok=True)
     try:
         staged = staging / filename
-        staged.write_bytes(await file.read())
+        staged.write_bytes(data)
         job = jq.enqueue(
-            f"api:{token['name']}", source, targets, tier, str(staged), frontend_id=fid, glossary=glossary,
-            mode="immediate", options={"connection_id": connection_id} if connection_id else {}, origin="api")
+            owner, source, targets, tier, str(staged), frontend_id=fid, glossary=glossary,
+            mode="immediate", options={"connection_id": connection_id} if connection_id else {}, origin="api",
+            fingerprint=fingerprint)
         job_dir = DOCUMENTS_DIR / job["id"]
         job_dir.mkdir(parents=True, exist_ok=True)
         staged.replace(job_dir / filename)
@@ -260,7 +297,8 @@ async def create_job(
     finally:
         shutil.rmtree(staging, ignore_errors=True)
     logger.info(f"API job {job['id']} accepted tier={tier} langs={len(targets)} token={token['id']}")
-    return JobCreated(job_id=job["id"], status=job["status"], estimate_s=job["estimate_s"])
+    jq.dispatch()  # start now if its connection has a free slot (otherwise it waits its turn)
+    return JobCreated(job_id=job["id"], status=jq.get(job["id"])["status"], estimate_s=job["estimate_s"])
 
 
 def _own_job(job_id: str, token: dict[str, Any]) -> dict[str, Any]:
@@ -270,12 +308,58 @@ def _own_job(job_id: str, token: dict[str, Any]) -> dict[str, Any]:
     return job
 
 
+def _job_files(job: dict[str, Any]) -> list[JobFile]:
+    """Files of a finished, unexpired job: the original plus one translation per language."""
+    if job["status"] != "done" or (job["expires_at"] and job["expires_at"] < time.time()):
+        return []
+    job_dir, src = DOCUMENTS_DIR / job["id"], Path(job["path"])
+    if not job_dir.is_dir():
+        return []
+    out = []
+    for p in sorted(job_dir.iterdir()):
+        if not p.is_file():
+            continue
+        lang = next((c for c in job["target_langs"] if p.name == f"{src.stem}.{c}{src.suffix}"), None)
+        out.append(JobFile(name=p.name, kind="translation" if lang else "source", lang=lang, size=p.stat().st_size))
+    return out
+
+
+@router.get("/jobs", response_model=list[JobSummary], summary="List your jobs (document library)")
+async def list_jobs(status: str | None = None, limit: int = 50, token: dict = Depends(require_api_token)):
+    limit = max(1, min(200, limit))
+    return [JobSummary(
+        job_id=j["id"], filename=Path(j["path"]).name, status=j["status"], progress=j["progress"].get("fraction", 0.0),
+        source_lang=j["source_lang"], target_langs=j["target_langs"], frontend_id=j["frontend_id"],
+        created_at=j["created_at"], expires_at=j["expires_at"], files=_job_files(j))
+        for j in jq.list_by_owner(f"api:{token['name']}", status, limit)]
+
+
 @router.get("/jobs/{job_id}", response_model=JobStatus, summary="Job status and progress")
 async def job_status(job_id: str, token: dict = Depends(require_api_token)):
     job = _own_job(job_id, token)
-    return JobStatus(job_id=job["id"], status=job["status"], total_langs=job["progress"].get("total", 0),
+    return JobStatus(job_id=job["id"], status=job["status"], progress=job["progress"].get("fraction", 0.0),
+                     total_langs=job["progress"].get("total", 0),
                      langs_done=job["progress"].get("langs_done", []), error=job["error"] or None,
-                     expires_at=job["expires_at"])
+                     expires_at=job["expires_at"], files=_job_files(job))
+
+
+@router.delete("/jobs/{job_id}", summary="Cancel a waiting or running job")
+async def cancel_job(job_id: str, token: dict = Depends(require_api_token)):
+    _own_job(job_id, token)
+    if not jq.cancel(job_id):
+        raise HTTPException(status_code=409, detail="Job already finished; nothing to cancel")
+    return {"job_id": job_id, "status": jq.get(job_id)["status"]}
+
+
+@router.get("/jobs/{job_id}/files/{filename}", summary="Download one file (original or one translation)")
+async def job_file(job_id: str, filename: str, token: dict = Depends(require_api_token)):
+    job = _own_job(job_id, token)
+    if job["status"] != "done":
+        raise HTTPException(status_code=409, detail=f"Files not available (status: {job['status']})")
+    match = next((f for f in _job_files(job) if f.name == filename), None)  # names come from disk, never from the URL
+    if not match:
+        raise HTTPException(status_code=404, detail="File not found (or expired)")
+    return FileResponse(DOCUMENTS_DIR / job_id / match.name, filename=match.name)
 
 
 @router.get("/jobs/{job_id}/result", summary="Download the result (file, or ZIP for several languages)")

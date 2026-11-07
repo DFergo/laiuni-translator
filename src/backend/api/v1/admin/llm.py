@@ -233,6 +233,8 @@ class ConnectionRequest(BaseModel):
     provider: str | None = None          # "" = infer from base_url
     prompt_cache_key: bool | None = None
     routing: dict[str, Any] | None = None
+    parallel: bool | None = None         # Sprint 23 (§17.1): several jobs at once
+    max_concurrent: int | None = None
 
 
 def _check_reasoning(updates: dict[str, Any]):

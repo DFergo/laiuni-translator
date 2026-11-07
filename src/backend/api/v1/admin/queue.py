@@ -31,6 +31,8 @@ async def get_queue(_: dict = Depends(require_admin)):
                 "status": j["status"], "mode": j["mode"], "priority": bool(j["priority"]),
                 "format": j["format"], "n_langs": len(j["target_langs"]),
                 "created_at": j["created_at"], "run_at": j["run_at"], "position": i + 1,
+                "progress": j["progress"].get("fraction", 0.0), "langs_done": j["progress"].get("done", 0),
+                "connection": jq.job_connection_id(j),
             }
             for i, j in enumerate(jobs)
         ],
@@ -50,6 +52,14 @@ async def retry(job_id: str, _: dict = Depends(require_admin)):
     """Re-queue a failed job to run again now (its source file persists)."""
     ok = jq.retry(job_id)
     logger.info(f"Admin retry job {job_id}: {'re-queued' if ok else 'not retryable'}")
+    return {"ok": ok}
+
+
+@router.post("/{job_id}/cancel")
+async def cancel(job_id: str, _: dict = Depends(require_admin)):
+    """Stop a waiting or running job (SPEC §17.2)."""
+    ok = jq.cancel(job_id)
+    logger.info(f"Admin cancel job {job_id}: {'cancelled' if ok else 'not cancellable'}")
     return {"ok": ok}
 
 

@@ -89,6 +89,7 @@ export interface QueueJob {
   status: 'running' | 'queued' | 'scheduled'
   mode: string; priority: boolean; format: string; n_langs: number
   created_at: number; run_at: number; position: number
+  origin?: string; progress?: number; langs_done?: number; connection?: string
 }
 export interface FailedJob {
   id: string; owner: string; frontend_id: string
@@ -101,6 +102,8 @@ export const moveJob = (id: string, direction: 'up' | 'down'): Promise<{ ok: boo
   request(`/admin/queue/${id}/move?direction=${direction}`, { method: 'POST' });
 export const retryJob = (id: string): Promise<{ ok: boolean }> =>
   request(`/admin/queue/${id}/retry`, { method: 'POST' });
+export const cancelQueueJob = (id: string): Promise<{ ok: boolean }> =>
+  request(`/admin/queue/${id}/cancel`, { method: 'POST' });
 export const deleteQueueJob = (id: string): Promise<{ ok: boolean }> =>
   request(`/admin/queue/${id}`, { method: 'DELETE' });
 
@@ -232,6 +235,9 @@ export interface LLMConnection {
   provider?: string
   prompt_cache_key?: boolean
   routing?: Record<string, unknown>
+  // Sprint 23 (SPEC §17.1)
+  parallel?: boolean
+  max_concurrent?: number
 }
 
 export type ReasoningLevel = 'off' | 'low' | 'medium' | 'high'

@@ -23,10 +23,11 @@ Each segment is translated two-pass (draft with neighbour context → glossary
 review) through the connection registry — never a hardcoded endpoint (lesson #9).
 """
 
+import contextvars
 import logging
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from src.api.v1.admin.llm import (
     get_llm_settings, load_document_translation_prompt, load_plain_translation_prompt,
@@ -38,6 +39,18 @@ from src.services.glossary_slice import slice_glossary, format_glossary_block
 from src.services.llm_provider import llm
 
 logger = logging.getLogger("backend.document_translator")
+
+# Per-job progress (Sprint 23, §17.3): process_job sets a callback taking
+# (units_done, units_total) for the current translate() call; the loops below report
+# after each chunk / paragraph. None outside a job (CLI, tests, API /translate).
+progress_hook: contextvars.ContextVar[Callable[[int, int], None] | None] = contextvars.ContextVar(
+    "progress_hook", default=None)
+
+
+def _report_progress(done: int, total: int) -> None:
+    hook = progress_hook.get()
+    if hook:
+        hook(done, total)
 
 _MD_SUFFIXES = {".md", ".markdown"}
 _DOCX_SUFFIXES = {".docx"}
@@ -928,7 +941,8 @@ async def _translate_text_native(
     for lang in target_langs:
         target_name = language_name(lang)
         covered, parts = 0, []
-        for chunk in chunks:
+        for n, chunk in enumerate(chunks):
+            _report_progress(n, len(chunks))
             core, trailing = _split_trailing_newlines(chunk)
             sliced = slice_glossary(core, source_lang, lang, user_glossary, base_terms=glossary_terms)
             covered += len(sliced)
@@ -937,6 +951,7 @@ async def _translate_text_native(
                 ctx_before="", ctx_after="", sliced=sliced,
                 system_prompt=system_prompt, review_prompt=review_prompt, chain=chain)
             parts.append(translated.rstrip("\n") + trailing)
+        _report_progress(len(chunks), len(chunks))
         ir.setdefault("doc_out", {})[lang] = "".join(parts)
         _log_coverage(covered, lang)
         logger.info(f"Translated whole document ({len(chunks)} chunk(s)) → {lang}")
@@ -954,6 +969,7 @@ async def _translate_structural(
         target_name = language_name(lang)
         covered = 0
         for pos, i in enumerate(trans_idx):
+            _report_progress(pos, len(trans_idx))
             core, trailing = _split_trailing_newlines(segs[i]["text"])
             ctx_before = segs[trans_idx[pos - 1]]["text"] if pos > 0 else ""
             ctx_after = segs[trans_idx[pos + 1]]["text"] if pos < len(trans_idx) - 1 else ""
@@ -964,6 +980,7 @@ async def _translate_structural(
                 ctx_before=ctx_before, ctx_after=ctx_after, sliced=sliced,
                 system_prompt=system_prompt, review_prompt=review_prompt, chain=chain)
             segs[i].setdefault("out", {})[lang] = translated.rstrip("\n") + trailing
+        _report_progress(len(trans_idx), len(trans_idx))
         _log_coverage(covered, lang)
         logger.info(f"Translated {len(trans_idx)} units → {lang}")
 

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
-  getQueue, prioritiseJob, moveJob, retryJob, deleteQueueJob, getUsage,
+  getQueue, prioritiseJob, moveJob, retryJob, deleteQueueJob, cancelQueueJob, getUsage,
   type QueueJob, type FailedJob, type UsageRow,
 } from './api'
 
@@ -57,25 +57,36 @@ export default function QueueTab() {
           <table className="min-w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                {['#', 'User', 'Format', 'Langs', 'Mode', 'Status', 'Priority', ''].map(h => (
+                {['#', 'User', 'Format', 'Langs', 'Mode', 'Status', 'Progress', 'Priority', ''].map(h => (
                   <th key={h} className="px-3 py-2 text-left font-medium text-gray-700">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {jobs.length === 0 && (
-                <tr><td colSpan={8} className="px-3 py-4 text-center text-gray-500">Queue is empty.</td></tr>
+                <tr><td colSpan={9} className="px-3 py-4 text-center text-gray-500">Queue is empty.</td></tr>
               )}
               {jobs.map((j) => (
                 <tr key={j.id} className="border-b border-gray-100 last:border-0">
                   <td className="px-3 py-2 text-gray-500">{j.position}</td>
-                  <td className="px-3 py-2">{j.owner}</td>
+                  <td className="px-3 py-2">{j.owner}{j.origin === 'api' && <span className="ml-1 text-xs text-gray-400">(api)</span>}</td>
                   <td className="px-3 py-2 uppercase text-gray-500">{j.format}</td>
                   <td className="px-3 py-2">{j.n_langs}</td>
                   <td className="px-3 py-2 text-gray-500">{j.mode}</td>
                   <td className="px-3 py-2">{statusBadge(j.status)}</td>
+                  <td className="px-3 py-2 min-w-[120px]">
+                    {j.status === 'running' && (
+                      <div title={`${j.langs_done ?? 0}/${j.n_langs} language(s) done · ${j.connection || ''}`}>
+                        <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                          <div className="h-full bg-uni-blue transition-all" style={{ width: `${Math.round((j.progress ?? 0) * 100)}%` }} />
+                        </div>
+                        <span className="text-xs text-gray-500">{Math.round((j.progress ?? 0) * 100)}%</span>
+                      </div>
+                    )}
+                  </td>
                   <td className="px-3 py-2">{j.priority ? '★' : ''}</td>
                   <td className="px-3 py-2 text-right whitespace-nowrap">
+                    <button title="Stop this job" onClick={() => { if (confirm('Cancel this job?')) act(() => cancelQueueJob(j.id)) }} className="px-1.5 text-uni-red hover:underline">cancel</button>
                     {j.status !== 'running' && (
                       <>
                         <button title="Move up" onClick={() => act(() => moveJob(j.id, 'up'))} className="px-1.5 text-gray-500 hover:text-gray-800">↑</button>
