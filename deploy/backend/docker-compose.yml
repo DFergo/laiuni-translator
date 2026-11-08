@@ -1,0 +1,31 @@
+# Backend on its own (T1 and T2: the frontends run on other machines).
+#
+# The admin panel AND the machine API (/api/v1, API tokens) are published only on
+# ADMIN_BIND (127.0.0.1 by default): reach them from this machine, or set ADMIN_BIND to
+# a private address (LAN or Tailscale IP), never to every interface of an exposed host.
+# The published image is multi-arch (amd64, arm64). To build it from this repository
+# instead: docker compose -f docker-compose.yml -f build-from-source.yml up -d --build
+#
+#   cp .env.example .env   # fill in
+#   docker compose up -d
+
+services:
+  translator-backend:
+    image: ghcr.io/dfergo/laiuni-translator-backend:${BACKEND_TAG:-latest}
+    pull_policy: always
+    restart: unless-stopped
+    ports:
+      - "${ADMIN_BIND:-127.0.0.1}:${BACKEND_ADMIN_PORT:-8000}:8000"
+    volumes:
+      - translator-data:/app/data
+    environment:
+      - DEPLOYMENT_JSON_PATH=/app/config/deployment_backend.json
+      # Installation secret: same value as TRANSLATOR_BACKEND_SECRET on every frontend
+      - TRANSLATOR_FRONTEND_SECRET=${TRANSLATOR_FRONTEND_SECRET:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # models served on this machine (Linux)
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  translator-data:

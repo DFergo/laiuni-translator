@@ -1,5 +1,7 @@
 # LAIUNI Translator — Installation Guide
 
+> Prefer to have an AI agent do this with you? See [`SETUP-AGENT.md`](../SETUP-AGENT.md): one prompt, and its MCP server drives the steps below, asking before each change.
+
 ## 1. What you are installing
 
 LAIUNI Translator has two kinds of containers:

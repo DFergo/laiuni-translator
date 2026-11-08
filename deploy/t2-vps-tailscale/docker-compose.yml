@@ -1,0 +1,64 @@
+# T2 with Tailscale — frontend on a VPS, backend at home/office. No inbound ports.
+#
+#   users    → Cloudflare Tunnel (cloudflared below) → http://translator-frontend:80
+#   backend  → Tailscale → http://<VPS Tailscale IP>:<FRONTEND_BACKEND_PORT>  (port 8080)
+# The backend port is published ONLY on the VPS's Tailscale address, so only
+# machines in your tailnet can reach it (restrict further with a Tailscale ACL).
+# Register in the backend: URL http://<TAILSCALE_IP>:<FRONTEND_BACKEND_PORT> + the signing
+# secret, and the public address https://<public hostname> (used in emailed download links).
+# In the tunnel, map ONLY the public hostname → http://translator-frontend:80.
+#
+#   cp .env.example .env   # fill in
+#   docker compose up -d
+
+services:
+  translator-frontend:
+    image: ghcr.io/dfergo/laiuni-translator-frontend:${FRONTEND_TAG:-latest}
+    restart: unless-stopped
+    ports:
+      - "${TAILSCALE_IP:?set TAILSCALE_IP (tailscale ip -4 on this VPS)}:${FRONTEND_BACKEND_PORT:-8081}:8080"
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+    volumes:
+      - translator-frontend-data:/app/data
+    environment:
+      - BACKEND_SURFACE_AUTH=signed
+      - TRANSLATOR_BACKEND_SECRET=${TRANSLATOR_BACKEND_SECRET:?set TRANSLATOR_BACKEND_SECRET}
+      - TRANSLATOR_BACKEND_SECRET_PREVIOUS=${TRANSLATOR_BACKEND_SECRET_PREVIOUS:-}
+    networks: [edge]
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETUID, SETGID, NET_BIND_SERVICE, DAC_OVERRIDE]
+    mem_limit: 1536m  # result ZIPs up to 512 MB are held in memory (≈2.5× peak) — see README
+    cpus: 1.0
+    pids_limit: 256
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN:?set TUNNEL_TOKEN (the tunnel's connector token)}
+    networks: [edge]
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    mem_limit: 128m
+
+  # Keeps the frontend image current. Optional; holds the Docker socket.
+  watchtower:
+    image: containrrr/watchtower:latest
+    restart: unless-stopped
+    command: --cleanup --label-enable --schedule "0 0 4 * * *"
+    environment:
+      # Recent Docker Engines reject Watchtower's default API version (1.25)
+      - DOCKER_API_VERSION=1.44
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+networks:
+  edge:
+
+volumes:
+  translator-frontend-data:

@@ -87,6 +87,15 @@ async def health():
     return JSONResponse({"status": "ok"})
 
 
+def resolve_spa_file(root: Path, full_path: str) -> Path | None:
+    """The file under ``root`` that ``full_path`` names, or None. Never a path that leaves
+    ``root`` (``..`` segments, encoded ``%2e%2e%2f``, symlinks): the request path is untrusted
+    and this route is reachable without logging in."""
+    root = root.resolve()
+    candidate = (root / full_path).resolve()
+    return candidate if candidate.is_file() and candidate.is_relative_to(root) else None
+
+
 # Serve admin SPA — must be after API routes
 if ADMIN_DIST.exists():
     app.mount("/assets", StaticFiles(directory=ADMIN_DIST / "assets"), name="admin-assets")
@@ -94,7 +103,9 @@ if ADMIN_DIST.exists():
     @app.get("/{full_path:path}")
     async def serve_admin_spa(full_path: str):
         """Serve admin SPA for all non-API routes."""
-        file_path = ADMIN_DIST / full_path
-        if file_path.is_file():
+        if full_path.startswith("api/"):  # a mistyped machine-API URL must not look like a success
+            return JSONResponse({"detail": "Not Found"}, status_code=404)
+        file_path = resolve_spa_file(ADMIN_DIST, full_path)
+        if file_path:
             return FileResponse(file_path)
         return FileResponse(ADMIN_DIST / "index.html")

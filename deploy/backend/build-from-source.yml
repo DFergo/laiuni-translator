@@ -1,0 +1,9 @@
+# Optional: build the backend from this repository instead of pulling the published image.
+#   docker compose -f docker-compose.yml -f build-from-source.yml up -d --build
+services:
+  translator-backend:
+    image: translator-backend:local
+    pull_policy: build
+    build:
+      context: ../..
+      dockerfile: Dockerfile.backend

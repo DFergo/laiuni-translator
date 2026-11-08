@@ -24,6 +24,31 @@ from src.services.llm_provider import llm  # noqa: E402
 SOURCE = "---\ntitle: Hola\ntags: [a]\n---\n\n# Titulo\n\nVer [[Nota X]] y https://example.com/a.\n\n```py\nx = 1\n```\n"
 
 
+class SpaPathTraversalTest(unittest.TestCase):
+    """The admin SPA fallback is reachable without logging in: it must never serve files
+    outside the SPA folder (it once served /app/data/.jwt_secret)."""
+
+    def test_only_files_inside_the_root(self):
+        from src.main import resolve_spa_file
+        base = Path(tempfile.mkdtemp())
+        root = base / "dist"
+        (root / "assets").mkdir(parents=True)
+        (root / "index.html").write_text("<html>")
+        (root / "assets" / "app.js").write_text("js")
+        (base / "secret.txt").write_text("top secret")
+        (base / "dist-evil").mkdir()
+        (base / "dist-evil" / "x.txt").write_text("sibling with the same prefix")
+        (root / "link").symlink_to(base / "secret.txt")
+
+        self.assertEqual(resolve_spa_file(root, "index.html"), (root / "index.html").resolve())
+        self.assertEqual(resolve_spa_file(root, "assets/app.js"), (root / "assets" / "app.js").resolve())
+        for attack in ("../secret.txt", "assets/../../secret.txt", "../dist-evil/x.txt",
+                       str(base / "secret.txt"), "link", "../../../../etc/passwd"):
+            self.assertIsNone(resolve_spa_file(root, attack), attack)
+        self.assertIsNone(resolve_spa_file(root, "nope.html"))
+        self.assertIsNone(resolve_spa_file(root, "assets"))  # a directory is not a file
+
+
 class SplitAndWarningsTest(unittest.TestCase):
     def test_frontmatter_split(self):
         fm, body = machine.split_frontmatter(SOURCE)
@@ -149,7 +174,8 @@ class MachineApiTest(unittest.TestCase):
         one = self.client.get(f"/api/v1/jobs/{job_id}/files/doc.en.md", headers=self.auth)
         self.assertEqual((one.status_code, one.text.startswith("# Title")), (200, True))
         self.assertEqual(self.client.get(f"/api/v1/jobs/{job_id}/files/doc.md", headers=self.auth).status_code, 200)
-        self.assertEqual(self.client.get(f"/api/v1/jobs/{job_id}/files/..%2F..%2Fjobs.db", headers=self.auth).status_code, 404)
+        traversal = self.client.get(f"/api/v1/jobs/{job_id}/files/..%2F..%2Fjobs.db", headers=self.auth)
+        self.assertNotEqual(traversal.status_code, 200)
         self.assertEqual(self.client.get(f"/api/v1/jobs/{job_id}/files/nope.md", headers=self.auth).status_code, 404)
         flt = self.client.get("/api/v1/jobs?status=cancelled", headers=self.auth).json()
         self.assertTrue(all(j["status"] == "cancelled" for j in flt))

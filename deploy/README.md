@@ -55,9 +55,10 @@ The admin shows the mode as a badge on each frontend (**signed**, **trusted netw
 |---|---|---|---|---|
 | **T1** | Another machine on the backend's LAN | `http://<LAN IP>:<FRONTEND_BACKEND_PORT>` (`BACKEND_BIND` = that LAN IP) | Signed (other LAN devices can reach the port) | [`t1-lan/`](t1-lan/) |
 | **T2** | A VPS (no VPN) | `https://<backend hostname>` on a cloudflared tunnel, Cloudflare Access with a service token (sent as extra headers) | Signed (own or installation secret) | [`t2-vps/`](t2-vps/) |
+| **T2 + Tailscale** | A VPS in your tailnet | `http://<VPS Tailscale IP>:<FRONTEND_BACKEND_PORT>` — published only on the Tailscale address; users through a Cloudflare Tunnel | Signed | [`t2-vps-tailscale/`](t2-vps-tailscale/) |
 | **T3** | Same machine as the backend, separate containers | `http://translator-frontend:8080` over an internal Docker network shared only by the two | Signed; trusted network is acceptable here | [`t3-same-host/`](t3-same-host/) |
 
-One backend can serve frontends in all three topologies and modes at once.
+The backend on its own (frontends on other machines) is [`backend/`](backend/) — its admin panel and the machine API (`/api/v1`) listen only on `ADMIN_BIND`. One backend can serve frontends in all topologies and modes at once.
 
 ## Result size and memory
 
