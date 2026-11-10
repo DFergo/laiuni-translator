@@ -1,6 +1,6 @@
 # Choosing a topology
 
-The deployment folders are in `deploy/` of the repo; `deploy_prepare` copies one and writes its `.env`.
+The deployment folders are in `deploy/` of the repo; `deploy_prepare` copies one and writes its `.env`. They are templates for a machine that runs nothing yet. If the machine already runs containers (`remote_inventory` shows them), do not add a template next to them: follow guide `existing-host`.
 
 ## Recommended
 

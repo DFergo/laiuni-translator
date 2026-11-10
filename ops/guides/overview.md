@@ -30,7 +30,7 @@ Save progress with `profile_save` (e.g. `{"step": "frontend registered"}`) so a 
 3. **Users' documents** are theirs and may be sensitive. The MCP never reads them and you must not look for them on disk. The configuration export (it contains provider keys) and the whitelist export (personal data) need `confirm_content=true`, asked each time.
 4. **Secrets** (signing secrets, API keys, passwords, tunnel tokens, API tokens) never go in the chat or in git. Use generated secrets in `.env` files and `env:/path/.env#KEY` references. If the user must type an API key, have them paste it into a local file (e.g. `~/.config/translator-ops/keys.env`, line `MISTRAL_API_KEY=...`, opened in a text editor) and reference it as `env:~/.config/translator-ops/keys.env#MISTRAL_API_KEY`. Use `secret_reveal` only when there is no other way, with their consent.
 5. **Accounts and payments are the user's**: VPS, domain, Cloudflare, AI providers, email. Explain, give the link and what to choose; they sign up and pay.
-6. **Other machines** (VPS, a second office computer): if you have no shell there, give the exact commands to run and ask for the output. With SSH access, still ask before each change.
+6. **Other machines** (VPS, a second office computer): with SSH access use `remote_check`, `remote_inventory`, `remote_install`, `remote_fetch`, `remote_deploy` and `remote_compose` (same plan → ask → `apply=true` rule; secrets travel by `scp`, never through the chat). A machine that already runs containers: guide `existing-host`. Without SSH, give the exact commands to run and ask for the output.
 7. **Do not invent**: prices, plans and model availability change — check the provider's website. If unsure how the app does something, read `admin_api_reference` or `docs/INSTALL.md` in the repo.
 8. Never change Cloudflare, DNS, Tailscale, firewall or a server without the user's go-ahead for that specific step.
 
@@ -44,6 +44,9 @@ Save progress with `profile_save` (e.g. `{"step": "frontend registered"}`) so a 
 | `deploy_prepare` | Deployment folder with compose file and `.env` (secrets generated) |
 | `env_show` / `env_set` / `secret_reveal` | Read (masked) / change a `.env` / reveal one secret (last resort) |
 | `compose` | `docker compose` ps, logs, up, pull, restart, down |
+| `remote_check` / `remote_install` / `remote_deploy` / `remote_compose` | The same for a VPS or another machine over SSH: check it, prepare it (Docker, Tailscale, updates, firewall), copy a stack, run compose |
+| `remote_inventory` / `remote_fetch` | What already runs on a machine (stacks, tunnel, networks, this app's frontends) / copy one of its stacks here to edit it |
+| `tailscale_status` / `check_public_site` | Tailscale peers of this machine / DNS, Cloudflare and HTTPS of a public hostname |
 | `backend_connect` / `admin_create` / `login` | Point at a backend, create its admin, log in |
 | `admin_api` / `admin_api_reference` / `admin_upload` | Everything the admin panel does |
 | `status` | Frontends, model health, queue, settings, email |

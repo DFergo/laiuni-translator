@@ -23,6 +23,8 @@ Human/CI use without an agent:  python3 translator_mcp.py call <tool> '<json arg
 
 from __future__ import annotations
 
+import difflib
+import ipaddress
 import json
 import os
 import platform
@@ -43,7 +45,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 SERVER_NAME = "laiuni-translator"
-SERVER_VERSION = "1.0.0"
+SERVER_VERSION = "1.1.0"
 PROTOCOL_VERSION = "2025-06-18"
 
 REPO = Path(__file__).resolve().parent.parent
@@ -58,6 +60,8 @@ TOPOLOGIES = {
     "t2-vps-tailscale": "A frontend on a VPS: users through a Cloudflare Tunnel, backend through Tailscale.",
     "t2-vps": "A frontend on a VPS without Tailscale: backend through a Cloudflare Access-protected hostname.",
 }
+COMPOSE_FILES = ("compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml")  # Docker's own order
+APP_FRONTEND_IMAGE = re.compile(r"/laiuni-translator-frontend(:|@|$)")
 SECRET_KEYS = re.compile(r"(secret|password|api_key|apikey|token|authorization|cf-access-client)", re.I)
 # Translator's admin API never returns users' documents. What needs the gate: the configuration
 # exports (they carry provider keys) and the whitelist export (personal data).
@@ -103,6 +107,10 @@ def _mask(value: Any, key: str = "") -> Any:
 
 
 # --------------------------------------------------------------------------- env files
+
+def _compose_file(folder: Path) -> str | None:
+    return next((n for n in COMPOSE_FILES if (folder / n).exists()), None)
+
 
 def _read_env(path: Path) -> dict[str, str]:
     out: dict[str, str] = {}
@@ -317,7 +325,9 @@ def check_machine() -> dict[str, Any]:
 
 @tool("deploy_prepare", "Create a deployment folder for a topology: copies its compose file and writes .env "
       "(mode 0600). Empty *SECRET values are generated; values can be given (use 'env:/path/.env#KEY' to copy a "
-      "secret from another .env without showing it). Topologies: "
+      "secret from another .env without showing it). The topologies are templates for a machine that runs nothing "
+      "yet; on a machine that already runs containers, check it with remote_inventory and fit the app into its "
+      "layout instead (guide 'existing-host'). Topologies: "
       + "; ".join(f"{k} — {v}" for k, v in TOPOLOGIES.items()),
       {"topology": {"type": "string", "enum": list(TOPOLOGIES)},
        "folder": {"type": "string", "description": "Where to create it, e.g. ~/translator/backend"},
@@ -419,9 +429,10 @@ def secret_reveal(folder: str, key: str, confirm_reveal: bool = False) -> str:
        "service": {"type": "string"}, "apply": APPLY}, ["folder", "action"])
 def compose(folder: str, action: str, service: str = "", apply: bool = False) -> dict[str, Any]:
     dest = Path(folder).expanduser().resolve()
-    if not (dest / "docker-compose.yml").exists():
-        raise ToolError(f"No docker-compose.yml in {dest}")
-    files = ["-f", "docker-compose.yml"] + (["-f", "build-from-source.yml"] if (dest / "build-from-source.yml").exists() else [])
+    main = _compose_file(dest)
+    if not main:
+        raise ToolError(f"No compose file in {dest} ({', '.join(COMPOSE_FILES)})")
+    files = ["-f", main] + (["-f", "build-from-source.yml"] if (dest / "build-from-source.yml").exists() else [])
     args = {"ps": ["ps"], "logs": ["logs", "--tail", "80"], "up": ["up", "-d", "--quiet-pull"], "pull": ["pull", "--quiet"],
             "restart": ["restart"], "down": ["down"]}[action]
     if action == "up" and "build-from-source.yml" in files:
@@ -431,6 +442,386 @@ def compose(folder: str, action: str, service: str = "", apply: bool = False) ->
         return _plan(" ".join(cmd) + f"  (in {dest})")
     code, out = _run(cmd, timeout=1800 if action in ("up", "pull") else 120, cwd=dest)
     return {"command": " ".join(cmd), "exit_code": code, "output": out[-6000:]}
+
+
+# ----- remote hosts (a VPS or another office machine, over SSH)
+
+_HOST = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]*@[A-Za-z0-9][A-Za-z0-9.:-]*$")
+_RDIR = re.compile(r"^(?!.*\.\.)/?[A-Za-z0-9_][A-Za-z0-9._/-]*$")
+_SERVICE = re.compile(r"^[A-Za-z0-9_.-]*$")
+_HOST_PROPS = {
+    "host": {"type": "string", "description": "user@address of the machine, e.g. root@203.0.113.7 or ubuntu@100.64.0.5"},
+    "port": {"type": "integer", "description": "SSH port if not 22"},
+    "identity": {"type": "string", "description": "Path to the SSH private key if not the default one"},
+}
+
+
+def _ssh_target(host: str, port: int | None = None, identity: str = "", scp: bool = False) -> tuple[str, list[str]]:
+    if not _HOST.match(host or ""):
+        raise ToolError("host must look like user@address (letters, digits, dots, dashes).")
+    opts = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=accept-new"]
+    if port:
+        opts += ["-P" if scp else "-p", str(int(port))]
+    if identity:
+        opts += ["-i", str(Path(identity).expanduser())]
+    return host, opts
+
+
+def _remote(host: str, command: str, port: int | None = None, identity: str = "", timeout: float = 120) -> str:
+    host, opts = _ssh_target(host, port, identity)
+    code, out = _run(["ssh", *opts, host, command], timeout=timeout)
+    if code == 255 or code == 127:
+        raise ToolError(f"Cannot open an SSH connection to {host}: {out[-300:] or 'ssh not found'}. Check the address, "
+                        "that the SSH key is added to the server (provider panel or ~/.ssh/authorized_keys) and "
+                        "that port 22 is open to this machine.")
+    if code == 124:
+        raise ToolError(f"The command on {host} timed out.")
+    return out if code == 0 else f"[exit {code}] {out}"
+
+
+def _remote_dir(remote_folder: str) -> str:
+    if not _RDIR.match(remote_folder or ""):
+        raise ToolError("remote_folder must be a plain path, relative to the SSH user's home or absolute "
+                        "(e.g. stacks/translator or /srv/translator). There is no default: use the folder that machine uses "
+                        "(remote_inventory shows them).")
+    return remote_folder.rstrip("/")
+
+
+def _remote_files(host: str, rdir: str, port: int | None, identity: str) -> list[str]:
+    """Which compose file and .env a remote folder already has (names only)."""
+    names = " ".join((*COMPOSE_FILES, ".env"))
+    out = _remote(host, f"cd {rdir} 2>/dev/null && for f in {names}; do test -e $f && echo $f; done; true",
+                  port, identity, timeout=60)
+    return [l.strip() for l in out.splitlines() if l.strip() in (*COMPOSE_FILES, ".env")]
+
+
+_SECRET_LINE = re.compile(r"(?i)(\b[\w-]*(?:secret|password|api_key|apikey|token)[\w-]*\s*[:=]\s*)(?!\$\{)(\S+)")
+
+
+def _mask_text(text: str) -> str:
+    """Hide literal secret values written inside a compose file (variables like ${X} are kept)."""
+    return _SECRET_LINE.sub(lambda m: m.group(1) + "•••", text)
+
+
+def _labels(raw: str) -> dict[str, str]:
+    out: dict[str, str] = {}
+    last = ""
+    for part in (raw or "").split(","):
+        if "=" in part:
+            last, value = part.split("=", 1)
+            out[last] = value
+        elif last:  # a value that itself contained a comma
+            out[last] += "," + part
+    return out
+
+
+_INVENTORY = ("docker compose ls --all --format json 2>&1; echo '@@'; "
+              "docker ps -a --no-trunc --format '{{json .}}' 2>&1; echo '@@'; "
+              "docker network ls --format '{{json .}}' 2>&1")
+
+
+@tool("remote_inventory", "Read-only: what already runs on a remote machine over SSH — its compose stacks (folder, "
+      "files, services), containers outside stacks, networks (created by a stack or by hand), any Cloudflare tunnel "
+      "(cloudflared) and which networks it joins, and the app's frontends already there. Use it before installing on "
+      "a machine that is not empty, and fit the app into the layout it shows (guide 'existing-host').",
+      _HOST_PROPS, ["host"])
+def remote_inventory(host: str, port: int | None = None, identity: str = "") -> dict[str, Any]:
+    out = _remote(host, _INVENTORY, port, identity, timeout=60)
+    if "permission denied" in out.lower() and "docker" in out.lower():
+        raise ToolError(f"{host} cannot use Docker. Connect as the user that runs the containers (in the docker "
+                        "group), usually the one that owns the stack folders.")
+    parts = (out.split("@@") + ["", ""])[:3]
+    try:
+        stacks_raw = json.loads(parts[0].strip() or "[]")
+    except ValueError:
+        raise ToolError(f"Unexpected answer from docker compose ls: {parts[0][-300:]}") from None
+    rows = [json.loads(l) for l in parts[1].splitlines() if l.strip().startswith("{")]
+    nets = [json.loads(l) for l in parts[2].splitlines() if l.strip().startswith("{")]
+
+    stacks = {s["Name"]: {"name": s["Name"], "status": s.get("Status"), "config_files": s.get("ConfigFiles"),
+                          "folder": str(Path(s.get("ConfigFiles", "").split(",")[0]).parent) if s.get("ConfigFiles") else None,
+                          "services": []} for s in stacks_raw}
+    loose, tunnel, frontends = [], [], []
+    for r in rows:
+        lab = _labels(r.get("Labels", ""))
+        c = {"container": r.get("Names"), "image": r.get("Image"), "state": r.get("State"),
+             "networks": sorted(n for n in (r.get("Networks") or "").split(",") if n)}
+        project, service = lab.get("com.docker.compose.project"), lab.get("com.docker.compose.service")
+        if project:
+            c = {"service": service, **c}
+            stacks.setdefault(project, {"name": project, "status": None, "config_files": None,
+                                        "folder": lab.get("com.docker.compose.project.working_dir"), "services": []})
+            stacks[project]["services"].append(c)
+        else:
+            loose.append(c)
+        where = {"stack": project, **c}
+        if "cloudflared" in (r.get("Image") or ""):
+            tunnel.append(where)
+        if APP_FRONTEND_IMAGE.search(r.get("Image") or ""):
+            frontends.append(where)
+    tunnel_nets = {n for t in tunnel for n in t["networks"]}
+    for f in frontends:
+        f["reachable_by_tunnel"] = bool(tunnel_nets & set(f["networks"]))
+    networks = [{"name": n["Name"],
+                 "created_by": (f"stack {_labels(n.get('Labels', '')).get('com.docker.compose.project')}"
+                                if "com.docker.compose.project" in (n.get("Labels") or "") else "by hand (external)")}
+                for n in nets if n.get("Name") not in ("bridge", "host", "none")]
+    folders = sorted({s["folder"] for s in stacks.values() if s["folder"]})
+    parents = sorted({str(Path(f).parent) for f in folders})
+    if not stacks and not loose:
+        hint = "Nothing runs here yet: a template from deploy_prepare fits (guide 'topologies')."
+    else:
+        hint = ("This machine already has its own layout: do not deploy a template next to it. Fit the frontend into "
+                "it (guide 'existing-host')"
+                + ("; a tunnel already runs here — reuse it, do not start a second cloudflared" if tunnel else "")
+                + (f"; stack folders live under {', '.join(parents)}" if parents else "") + ".")
+    return {"stacks": list(stacks.values()), "containers_outside_stacks": loose, "networks": networks,
+            "tunnel": tunnel, "app_frontends": frontends, "next": hint}
+
+
+@tool("remote_fetch", "Copy a stack's compose file and .env from a remote machine to a new local folder (the .env "
+      "gets mode 0600 and its values are never shown), so it can be edited here — e.g. to add a frontend to a stack "
+      "that already exists — and sent back with remote_deploy. Changes nothing on the remote machine.",
+      {**_HOST_PROPS, "remote_folder": {"type": "string", "description": "The stack's folder on the remote machine"},
+       "folder": {"type": "string", "description": "New local folder for the copy"}, "apply": APPLY},
+      ["host", "remote_folder", "folder"])
+def remote_fetch(host: str, remote_folder: str, folder: str, port: int | None = None, identity: str = "",
+                 apply: bool = False) -> dict[str, Any]:
+    rdir = _remote_dir(remote_folder)
+    dest = Path(folder).expanduser().resolve()
+    if dest.exists() and any(dest.iterdir()):
+        raise ToolError(f"{dest} is not empty: choose a new folder for the copy.")
+    found = _remote_files(host, rdir, port, identity)
+    if not any(f in COMPOSE_FILES for f in found):
+        raise ToolError(f"No compose file in {host}:{rdir}. remote_inventory shows the stack folders.")
+    if not apply:
+        return _plan(f"copy {', '.join(found)} from {host}:{rdir}/ to {dest} (the .env with mode 0600; its values "
+                     "are not shown). Nothing changes on the remote machine")
+    _private_dir(dest)
+    host_, opts = _ssh_target(host, port, identity, scp=True)
+    for name in found:
+        if name == ".env":
+            _write_private(dest / name, "")  # scp keeps the mode of an existing file: 0600 from the first byte
+        code, out = _run(["scp", *opts, f"{host_}:{rdir}/{name}", str(dest / name)], timeout=120)
+        if code != 0:
+            raise ToolError(f"Copying {name} failed: {out[-300:]}")
+    st = _state()
+    st.setdefault("fetched", {})[str(dest)] = {"from": f"{host}:{rdir}", "files": found,
+                                                "fetched": time.strftime("%Y-%m-%d %H:%M")}
+    _save_state(st)
+    return {"copied": found, "to": str(dest), "env": _mask_env(dest / ".env"),
+            "next": "Edit the compose file here (guide 'existing-host'), env_set for new variables, then "
+                    "remote_deploy with replace_existing=true."}
+
+
+_REMOTE_CHECK = (
+    'echo "os=$(. /etc/os-release 2>/dev/null; echo $PRETTY_NAME)"; echo "arch=$(uname -m)"; '
+    'echo "user=$(id -un)"; echo "sudo=$(sudo -n true 2>/dev/null && echo yes || echo no)"; '
+    'echo "docker=$(docker --version 2>/dev/null)"; echo "compose=$(docker compose version 2>/dev/null)"; '
+    'echo "tailscale=$(tailscale version 2>/dev/null | head -1)"; '
+    'echo "tailscale_ip=$(tailscale ip -4 2>/dev/null | head -1)"; '
+    'echo "ufw=$(sudo -n ufw status 2>/dev/null | head -1)"; '
+    'echo "disk_free_gb=$(df -BG --output=avail / 2>/dev/null | tail -1 | tr -dc 0-9)"; '
+    'echo "mem_mb=$(awk \'/MemTotal/{print int($2/1024)}\' /proc/meminfo 2>/dev/null)"; '
+    'echo "listening=$(ss -ltn 2>/dev/null | awk \'NR>1{print $4}\' | tr \'\\n\' \' \')"'
+)
+
+
+@tool("remote_check", "Read-only check of a remote machine over SSH (a VPS, or another office computer): OS, "
+      "architecture, memory, disk, whether Docker / Docker Compose / Tailscale / the firewall are there, its Tailscale "
+      "IP and which ports are listening. Use it first, and again after each remote_install.",
+      _HOST_PROPS, ["host"])
+def remote_check(host: str, port: int | None = None, identity: str = "") -> dict[str, Any]:
+    out = _remote(host, _REMOTE_CHECK, port, identity, timeout=60)
+    info = {k: v.strip() for k, v in (l.split("=", 1) for l in out.splitlines() if "=" in l)}
+    ports = sorted({x.rsplit(":", 1)[-1] for x in info.get("listening", "").split() if ":" in x})
+    exposed = [x for x in info.get("listening", "").split()
+               if x.rsplit(":", 1)[-1] not in ("22",) and not x.startswith(("127.", "[::1]", "100.", "[fd7a"))]
+    return {**{k: v or None for k, v in info.items() if k != "listening"}, "listening_ports": ports,
+            "listening_beyond_ssh_and_private": exposed,
+            "next": ("Docker missing: remote_install docker. " if not info.get("docker") else "")
+                    + ("Tailscale missing: remote_install tailscale. " if not info.get("tailscale") else "")
+                    + ("Tailscale installed but not logged in: remote_install tailscale_login. "
+                       if info.get("tailscale") and not info.get("tailscale_ip") else "")}
+
+
+_INSTALL_ACTIONS = {
+    "updates": ("system updates and automatic security updates",
+                "{S}apt-get update -y && {S}env DEBIAN_FRONTEND=noninteractive apt-get upgrade -y && "
+                "{S}env DEBIAN_FRONTEND=noninteractive apt-get install -y unattended-upgrades curl ca-certificates"),
+    "docker": ("Docker (official script from get.docker.com) and add the SSH user to the docker group",
+               "curl -fsSL https://get.docker.com | {S}sh && {S}usermod -aG docker \"$(id -un)\""),
+    "tailscale": ("Tailscale (official script from tailscale.com/install.sh); it still has to be logged in",
+                  "curl -fsSL https://tailscale.com/install.sh | {S}sh"),
+    "tailscale_login": ("start the Tailscale login and return the link the user must open in their browser",
+                        "{S}timeout 20 tailscale up 2>&1; true"),
+    "firewall": ("firewall (ufw): deny incoming, allow SSH on port {ssh_port}, enable. A wrong SSH port locks you "
+                 "out: the provider's panel is the way back in",
+                 "{S}apt-get install -y ufw && {S}ufw default deny incoming && {S}ufw default allow outgoing && "
+                 "{S}ufw allow {ssh_port}/tcp && {S}ufw --force enable"),
+}
+
+
+@tool("remote_install", "Prepare a remote Linux machine (Ubuntu/Debian) over SSH with one fixed, explained step: "
+      "updates, docker, tailscale, tailscale_login (returns the login link for the user), firewall. Nothing else can "
+      "be run through it. Needs apply=true after the user agreed; the plan shows the exact action.",
+      {**_HOST_PROPS, "action": {"type": "string", "enum": list(_INSTALL_ACTIONS)}, "apply": APPLY},
+      ["host", "action"])
+def remote_install(host: str, action: str, port: int | None = None, identity: str = "", apply: bool = False):
+    if action not in _INSTALL_ACTIONS:
+        raise ToolError(f"Unknown action. Use one of: {', '.join(_INSTALL_ACTIONS)}")
+    what, script = _INSTALL_ACTIONS[action]
+    ssh_port = int(port or 22)
+    what = what.format(ssh_port=ssh_port)
+    if not apply:
+        return _plan(f"on {host}: {what}")
+    root = host.split("@", 1)[0] == "root"
+    out = _remote(host, script.format(S="" if root else "sudo ", ssh_port=ssh_port), port, identity, timeout=1500)
+    result: dict[str, Any] = {"done": what, "output": out[-3000:]}
+    if action == "tailscale_login":
+        link = re.search(r"https://login\.tailscale\.com/\S+", out)
+        result["login_link"] = link.group(0) if link else None
+        result["next"] = ("Ask the user to open the link and sign in, then run remote_check: tailscale_ip should "
+                          "appear." if link else "No link: Tailscale may already be logged in — run remote_check.")
+    return result
+
+
+@tool("remote_deploy", "Copy a local stack folder (its compose file and .env — from deploy_prepare, or fetched and "
+      "edited with remote_fetch) to a folder on a remote machine over SSH, directly: the secrets in the .env never "
+      "pass through the chat. The .env on the remote machine gets mode 0600. Does not start anything (use "
+      "remote_compose up). If the remote folder already holds a stack, it refuses unless replace_existing=true; then "
+      "the plan shows what changes and the current files are kept as <file>.bak-<date>.",
+      {**_HOST_PROPS, "folder": {"type": "string", "description": "Local stack folder"},
+       "remote_folder": {"type": "string", "description": "Folder on the remote machine, relative to the SSH user's "
+                                                          "home or absolute; follow the machine's layout"},
+       "replace_existing": {"type": "boolean"}, "apply": APPLY}, ["host", "folder", "remote_folder"])
+def remote_deploy(host: str, folder: str, remote_folder: str, port: int | None = None, identity: str = "",
+                  replace_existing: bool = False, apply: bool = False):
+    src = Path(folder).expanduser().resolve()
+    main = _compose_file(src)
+    if not main:
+        raise ToolError(f"No compose file in {src}: prepare it with deploy_prepare or remote_fetch first.")
+    files = [main] + ([".env"] if (src / ".env").exists() else [])
+    rdir = _remote_dir(remote_folder)
+    existing = _remote_files(host, rdir, port, identity)
+    other = [f for f in existing if f in COMPOSE_FILES and f != main]
+    if other:
+        raise ToolError(f"{host}:{rdir} uses {other[0]}; name the local file the same so the stack keeps one "
+                        "compose file.")
+    if existing and not replace_existing:
+        raise ToolError(f"{host}:{rdir} already holds a stack ({', '.join(existing)}). To change it: remote_fetch, "
+                        "edit, then replace_existing=true after the user agreed. To add a new stack, choose another "
+                        "remote_folder.")
+    if not apply:
+        details: dict[str, Any] = {"files": files, "replaces": existing}
+        if main in existing:
+            old = _remote(host, f"cat {rdir}/{main}", port, identity, timeout=60).splitlines()
+            diff = difflib.unified_diff(old, (src / main).read_text().splitlines(), "remote", "local", lineterm="")
+            details["compose_changes"] = _mask_text("\n".join(diff)) or "none"
+        if ".env" in files:
+            details["env"] = _mask_env(src / ".env")
+        return _plan(f"copy {', '.join(files)} from {src} to {host}:{rdir}/"
+                     + (" (the .env holds secrets; it is sent directly, not through the chat, with mode 0600)"
+                        if ".env" in files else "")
+                     + (f"; the current {', '.join(existing)} kept as .bak-<date>" if existing else ""), details)
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    backup = "".join(f" && cp -p {f} {f}.bak-{stamp}" for f in existing)
+    _remote(host, f"mkdir -p {rdir} && chmod 700 {rdir} && cd {rdir}{backup}", port, identity, timeout=60)
+    host_, opts = _ssh_target(host, port, identity, scp=True)
+    for name in files:
+        code, out = _run(["scp", *opts, str(src / name), f"{host_}:{rdir}/{name}"], timeout=120)
+        if code != 0:
+            raise ToolError(f"Copying {name} failed: {out[-300:]}")
+    if ".env" in files:
+        _remote(host, f"chmod 600 {rdir}/.env", port, identity, timeout=60)
+    st = _state()
+    st.setdefault("remote_deployments", {})[f"{host}:{rdir}"] = {"from": str(src), "copied": time.strftime("%Y-%m-%d %H:%M")}
+    _save_state(st)
+    return {"copied": files, "to": f"{host}:{rdir}", "backups": [f"{f}.bak-{stamp}" for f in existing],
+            "next": "remote_compose action=up"}
+
+
+@tool("remote_compose", "Run docker compose in a stack folder on a remote machine over SSH. Actions: ps, logs "
+      "(read-only); up, pull, restart, down (change things: need apply=true). Never removes data volumes.",
+      {**_HOST_PROPS, "remote_folder": {"type": "string", "description": "The stack's folder (remote_inventory "
+                                                                         "shows them)"},
+       "action": {"type": "string", "enum": ["ps", "logs", "up", "pull", "restart", "down"]},
+       "service": {"type": "string"}, "apply": APPLY}, ["host", "remote_folder", "action"])
+def remote_compose(host: str, action: str, remote_folder: str, service: str = "",
+                   port: int | None = None, identity: str = "", apply: bool = False) -> dict[str, Any]:
+    rdir = _remote_dir(remote_folder)
+    if not _SERVICE.match(service):
+        raise ToolError("service must be a plain service name.")
+    args = {"ps": "ps", "logs": "logs --tail 80", "up": "up -d", "pull": "pull", "restart": "restart",
+            "down": "down"}.get(action)
+    if args is None:
+        raise ToolError("action must be ps, logs, up, pull, restart or down.")
+    cmd = f"cd {rdir} && docker compose {args}" + (f" {service}" if service else "")
+    if action not in ("ps", "logs") and not apply:
+        return _plan(f"on {host}: {cmd}")
+    out = _remote(host, cmd, port, identity, timeout=1800 if action in ("up", "pull") else 120)
+    return {"command": cmd, "host": host, "output": out[-6000:]}
+
+
+@tool("tailscale_status", "Read-only: this machine's Tailscale state, its IPv4 address and the other machines on the "
+      "same tailnet (name, address, online). Use it to confirm that the backend machine and the VPS see each other.")
+def tailscale_status() -> dict[str, Any]:
+    code, out = _run(["tailscale", "status", "--json"], timeout=15)
+    if code == 127:
+        return {"installed": False, "next": "Install Tailscale on this machine (guide 'prerequisites')."}
+    try:
+        data = json.loads(out)
+    except ValueError:
+        return {"installed": True, "running": False, "detail": out[-300:],
+                "next": "Open the Tailscale app or run 'tailscale up' and sign in."}
+    me = data.get("Self") or {}
+
+    def brief(n: dict[str, Any]) -> dict[str, Any]:
+        ips = [ip for ip in n.get("TailscaleIPs") or [] if "." in ip]
+        return {"name": n.get("HostName"), "ip": ips[0] if ips else None, "online": n.get("Online"), "os": n.get("OS")}
+
+    return {"installed": True, "state": data.get("BackendState"), "this_machine": brief(me),
+            "peers": [brief(n) for n in (data.get("Peer") or {}).values()]}
+
+
+_CLOUDFLARE_NETS = [ipaddress.ip_network(n) for n in (
+    "173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 "
+    "190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 "
+    "104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 "
+    "2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32").split()]
+
+
+@tool("check_public_site", "Read-only check of a public hostname (the Cloudflare Tunnel's): does the name resolve, "
+      "does it point to Cloudflare, is the HTTPS certificate valid and for how long. Run it after adding the "
+      "hostname to the tunnel; DNS can take minutes to a few hours when a domain's nameservers were just moved. "
+      "The Cloudflare check compares against Cloudflare's published ranges (cloudflare.com/ips) and is a hint.",
+      {"hostname": {"type": "string", "description": "e.g. workers.union-reports.org"}}, ["hostname"])
+def check_public_site(hostname: str) -> dict[str, Any]:
+    hostname = hostname.strip().lower().removeprefix("https://").split("/")[0]
+    if not re.match(r"^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$", hostname) or "." not in hostname:
+        raise ToolError("hostname must be a name such as workers.example.org.")
+    result: dict[str, Any] = {"hostname": hostname}
+    try:
+        addrs = sorted({a[4][0] for a in socket.getaddrinfo(hostname, 443, proto=socket.IPPROTO_TCP)})
+    except socket.gaierror:
+        return {**result, "resolves": False, "ready": False,
+                "hint": "The name does not resolve yet: the public hostname is not in the tunnel, the domain is not "
+                        "on Cloudflare yet (nameservers), or DNS has not propagated. Check again in a few minutes."}
+    result.update(resolves=True, addresses=addrs,
+                  points_to_cloudflare=any(ipaddress.ip_address(a) in net for a in addrs for net in _CLOUDFLARE_NETS))
+    try:
+        with socket.create_connection((hostname, 443), timeout=10) as raw:
+            with ssl.create_default_context().wrap_socket(raw, server_hostname=hostname) as tls:
+                cert = tls.getpeercert()
+        expires = ssl.cert_time_to_seconds(cert["notAfter"])
+        result.update(https_ok=True, certificate_days_left=int((expires - time.time()) // 86400))
+    except (OSError, ssl.SSLError) as e:
+        result.update(https_ok=False, https_error=str(e)[:200])
+    result["ready"] = bool(result.get("https_ok"))
+    result["next"] = "check_frontend with https://" + hostname if result["ready"] else (
+        "Resolves but HTTPS fails: the tunnel may be down (remote_compose ps → cloudflared) or the certificate is "
+        "still being issued; see guide 'troubleshoot'.")
+    return result
 
 
 # ----- checks and tests

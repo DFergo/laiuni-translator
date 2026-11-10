@@ -22,7 +22,7 @@ Read-only checks first, then explain, then propose a fix (and ask).
 | Empty or truncated output | A reasoning model used up the token budget | `translation_reasoning` = `off` (or `default` if the model cannot switch it off); raise `translation_max_tokens`; the app retries and then fails rather than ship a hole. |
 | Same file refused ("already being translated") | Duplicate protection: an identical job is still queued or running | Wait for it, cancel it, or (API) send `force=true`. |
 | Result link in the email does not open | Frontend has no `public_url` | `PUT /admin/frontends/<id> {"public_url": "https://…"}` (guide `frontends`). |
-| Tunnel site down (Cloudflare error 1033/502) | `cloudflared` not running or wrong service in the hostname | `compose ps` on the VPS; the hostname must point to `http://translator-frontend:80`. |
+| Tunnel site down (Cloudflare error 1033/502) | `cloudflared` not running or wrong service in the hostname | `remote_compose action="ps"` in the tunnel's stack; the hostname must point to `http://<frontend service name>:80` (`translator-frontend` in the templates) and `cloudflared` must share a network with that frontend (`remote_inventory`: `reachable_by_tunnel`). |
 | T2 frontend container does not start after reboot | Tailscale IP not up yet when Docker started | `docker compose up -d` again; ensure Tailscale starts at boot (`systemctl enable tailscaled`). |
 | `/api/v1` answers 404 | Backend image older than the machine API | Update the backend (guide `operate`). |
 | Backend does not start / is killed | Not enough memory or disk | `compose logs`, `docker stats`; the app is light (about 100 MB idle) but needs ≈ 1 GB of disk for its image plus room for documents. |

@@ -16,7 +16,8 @@ Check current plans and prices on their sites; do not quote them from memory.
 
 ## Setting it up (with the user, step by step)
 1. The user creates the account and the server, and gives you its IP address and the SSH user (often `root` on Hetzner).
-2. If you can run commands locally, check access: `ssh <user>@<ip> 'uname -a'` (ask first).
-3. On the VPS: system updates (`apt update && apt upgrade -y`), Docker (guide `prerequisites`), Tailscale (`tailscale up`), and automatic security updates (`apt install -y unattended-upgrades`).
-4. Copy the frontend deployment: prepare it locally with `deploy_prepare` (`t2-vps-tailscale`) in a temporary folder, then copy it (`scp -r <folder> <user>@<ip>:~/translator-frontend`) — this keeps the secrets out of the chat. Then on the VPS: `cd ~/translator-frontend && docker compose up -d`.
-5. If you have no shell access, give the user the exact commands, one block at a time, and ask what they see.
+2. `remote_check host=user@address` — read-only; shows OS, memory, Docker, Tailscale and listening ports.
+3. Prepare the server with `remote_install` (one action per call, each after the user's yes): `updates`, `docker`, `tailscale`, `tailscale_login` (the user opens the returned link), optionally `firewall`. Run `remote_check` again after each.
+4. `remote_inventory host=user@address` — is the server empty? If it already runs containers (another app, a tunnel, the organization's own stacks), follow guide `existing-host` instead of step 5.
+5. Deploy the frontend: `deploy_prepare` (`t2-vps-tailscale`) locally, `remote_deploy` with the folder you and the user chose on the server (copies the `.env` straight to it, never through the chat), `remote_compose action="up"`. Then `check_public_site` and `check_frontend`.
+6. If SSH from this machine is not possible (key not added, port blocked), give the user the exact commands from `remote_install`'s plan, one block at a time, and ask what they see. They can also run them in the provider's web console.

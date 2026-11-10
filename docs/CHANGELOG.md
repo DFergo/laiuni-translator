@@ -2,6 +2,15 @@
 
 Changes to the code in this repository. Earlier history is in the git log.
 
+## Sprint 26 — Remote machines, and the app fitted into the machine's own layout (2026-11-10)
+
+Ported from HRDD Helper's Sprints 42 and 44 (MCP v1.1.0). Daniel: the MCP has to know how to install the app without imposing a topology or the names of the environment.
+
+- **Remote machines over SSH:** `remote_check`, `remote_install` (one fixed step per call: updates, docker, tailscale, tailscale_login, firewall), `remote_deploy`, `remote_compose`, plus `tailscale_status` and `check_public_site`. Secrets travel by `scp`, never through the chat.
+- **No imposed layout:** the topologies are templates for an empty machine only. `remote_inventory` (read-only) shows a machine's stacks, networks, tunnel and this app's frontends (and whether the tunnel reaches them); `remote_fetch` copies a stack here to edit it; `remote_deploy replace_existing=true` sends it back with a masked compose diff in the plan and `.bak-<date>` copies on the machine. `remote_folder` is required (relative or absolute), any compose file name is accepted (local `compose` too).
+- **Guides:** new `existing-host` (look first, the frontend contract incl. the 1536 MB memory floor, add to an existing stack or as a new one, route and register); `vps` now uses the remote tools; `overview`, `topologies`, `domain-cloudflare`, `troubleshoot` updated.
+- Tests: 16 new MCP tests (37 in total) with fake `ssh`/`scp`/`tailscale`. Live, read-only, on UNI's VPS: `remote_inventory` found the `translator` stack with its two frontends behind the shared tunnel.
+
 ## Sprint 21 — LLM provider controls and usage accounting (2026-10-30)
 
 Port of HRDD Helper Sprint 37, section B (Translator has no chat history, so prompt-layout caching does not apply).

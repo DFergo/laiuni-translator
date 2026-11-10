@@ -24,6 +24,7 @@ The user buys and pays; help them pick a name that is neutral and easy to type.
 1. **Create a remotely-managed tunnel** (type *cloudflared*) named e.g. `translator-frontend-<site>`.
 2. **Public hostname** → service:
    - topology B (`t2-vps-tailscale`) and `t2-vps`: `https://<hostname>` → `http://translator-frontend:80`
+   - a frontend added to a machine's own layout (guide `existing-host`): `http://<its service name>:80`, in the tunnel that machine already has
    - cloudflared on the host next to a T1/T3 frontend: `http://localhost:<FRONTEND_PORT>`
    **Map only the public port (80).** Never the backend port.
    Adding the hostname creates the DNS record automatically when the domain is on Cloudflare.
